@@ -221,10 +221,6 @@
                     <label for="tableNameInput" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">Nombre de la mesa *</label>
                     <input id="tableNameInput" type="text" required maxlength="50" placeholder="Ej: Mesa 1 - Familia, Mesa Amigos..." class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 rounded-2xl px-4 py-3 text-base text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
                 </div>
-                <div>
-                    <label for="tableCapacityInput" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">Capacidad máxima (opcional)</label>
-                    <input id="tableCapacityInput" type="number" min="1" max="100" inputmode="numeric" placeholder="Ej: 8 personas (déjalo vacío si es libre)" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 rounded-2xl px-4 py-3 text-base text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
-                </div>
                 <div class="flex gap-2.5 pt-2">
                     <button type="button" data-close-modal="tableModal" class="flex-1 py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">Cancelar</button>
                     <button type="submit" class="flex-1 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm shadow-md shadow-indigo-200 dark:shadow-none transition">Guardar Mesa</button>
@@ -794,7 +790,6 @@
                     {
                         id: generateId('mesa'),
                         name: 'Mesa 1',
-                        capacity: 10,
                         collapsed: false,
                         guests: []
                     }
@@ -906,20 +901,8 @@
                 visibleTablesCount++;
                 const guestsToShow = (normQuery && !tableMatches) ? matchingGuests : (table.guests || []);
                 const guestCount = (table.guests || []).length;
-                const hasCap = Number.isInteger(table.capacity) && table.capacity > 0;
-                const isOverCap = hasCap && guestCount > table.capacity;
-                const isFull = hasCap && guestCount === table.capacity;
-
-                let countBadgeClass = 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300';
-                if (isOverCap) {
-                    countBadgeClass = 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300';
-                } else if (isFull) {
-                    countBadgeClass = 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300';
-                }
-
-                const countLabel = hasCap
-                    ? `${guestCount} / ${table.capacity} pers.`
-                    : `${guestCount} ${guestCount === 1 ? 'persona' : 'personas'}`;
+                const countBadgeClass = 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300';
+                const countLabel = `${guestCount} ${guestCount === 1 ? 'persona' : 'personas'}`;
 
                 const isCollapsed = Boolean(table.collapsed) && !normQuery;
 
@@ -972,7 +955,6 @@
                                         <span class="inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded-full ${countBadgeClass}">
                                             ${countLabel}
                                         </span>
-                                        ${isOverCap ? `<span class="text-[10px] font-bold text-rose-600 dark:text-rose-400">Excede capacidad</span>` : ''}
                                     </div>
                                 </div>
                             </button>
@@ -1026,7 +1008,6 @@
             document.getElementById('tableModalTitle').textContent = 'Nueva Mesa';
             document.getElementById('tableIdInput').value = '';
             document.getElementById('tableNameInput').value = `Mesa ${state.tables.length + 1}`;
-            document.getElementById('tableCapacityInput').value = '';
             openModal('tableModal');
             setTimeout(() => {
                 const input = document.getElementById('tableNameInput');
@@ -1042,7 +1023,6 @@
             document.getElementById('tableModalTitle').textContent = 'Editar Mesa';
             document.getElementById('tableIdInput').value = table.id;
             document.getElementById('tableNameInput').value = table.name;
-            document.getElementById('tableCapacityInput').value = table.capacity || '';
             openModal('tableModal');
             setTimeout(() => document.getElementById('tableNameInput').focus(), 60);
         }
@@ -1051,8 +1031,6 @@
             event.preventDefault();
             const id = document.getElementById('tableIdInput').value;
             const name = document.getElementById('tableNameInput').value.trim();
-            const rawCap = document.getElementById('tableCapacityInput').value.trim();
-            const capacity = rawCap ? parseInt(rawCap, 10) : null;
 
             if (!name) return;
 
@@ -1060,14 +1038,12 @@
                 const table = state.tables.find((t) => t.id === id);
                 if (table) {
                     table.name = name;
-                    table.capacity = Number.isInteger(capacity) && capacity > 0 ? capacity : null;
                     showToast(`Mesa "${name}" actualizada.`);
                 }
             } else {
                 state.tables.push({
                     id: generateId('mesa'),
                     name,
-                    capacity: Number.isInteger(capacity) && capacity > 0 ? capacity : null,
                     collapsed: false,
                     guests: []
                 });
@@ -1302,11 +1278,37 @@
 
             optionsEl.innerHTML = otherTables.map((t) => {
                 const count = (t.guests || []).length;
-                const capText = t.capacity ? `${count}/${t.capacity}` : `${count} pers.`;
+                const countText = `${count} ${count === 1 ? 'persona' : 'personas'}`;
                 return `
                     <button type="button" data-confirm-move-to="${t.id}" data-source-table="${sourceTableId}" data-guest-id="${guestId}" class="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/50 flex items-center justify-between text-left transition">
                         <span class="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">${escapeHtml(t.name)}</span>
-                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 ml-2">${capText}</span>
+                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 ml-2">${countText}</span>
+                    </button>
+                `;
+            }).join('');
+
+            openModal('moveGuestModal');
+        }
+
+        function openAssignAttendeeToTableModal(attendeeName) {
+            if (state.tables.length === 0) {
+                showToast('Crea primero una mesa para asignar personas.', 'info');
+                closeModal('attendeesModal');
+                openCreateTableModal();
+                return;
+            }
+
+            document.getElementById('moveGuestTitle').textContent = 'Asignar a una Mesa';
+            document.getElementById('moveGuestSubtitle').textContent = `Elige mesa para ${attendeeName}`;
+
+            const optionsEl = document.getElementById('moveTableOptions');
+            optionsEl.innerHTML = state.tables.map((t) => {
+                const count = (t.guests || []).length;
+                const countText = `${count} ${count === 1 ? 'persona' : 'personas'}`;
+                return `
+                    <button type="button" data-assign-attendee-table="${t.id}" data-attendee-name="${escapeHtml(attendeeName)}" class="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-emerald-400 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/50 flex items-center justify-between text-left transition">
+                        <span class="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">${escapeHtml(t.name)}</span>
+                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 ml-2">${countText}</span>
                     </button>
                 `;
             }).join('');
@@ -1479,14 +1481,13 @@
                 // Tabla resumen
                 const summaryRows = state.tables.map((t) => [
                     t.name,
-                    String((t.guests || []).length),
-                    t.capacity ? String(t.capacity) : 'Libre'
+                    String((t.guests || []).length)
                 ]);
 
                 doc.autoTable({
                     startY: 30,
-                    head: [['Mesa', 'Personas', 'Capacidad']],
-                    body: summaryRows.length ? summaryRows : [['Sin mesas creadas', '0', '-']],
+                    head: [['Mesa', 'Personas']],
+                    body: summaryRows.length ? summaryRows : [['Sin mesas creadas', '0']],
                     theme: 'grid',
                     headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
                     styles: { fontSize: 9.5, cellPadding: 2.5 }
@@ -1502,8 +1503,9 @@
                     }
 
                     const count = (table.guests || []).length;
-                    const capStr = table.capacity ? ` / ${table.capacity}` : '';
                     doc.setFontSize(12);
+                    doc.setTextColor(30, 41, 59);
+                    doc.text(`${table.name} (${count} ${count === 1 ? 'persona' : 'personas'})`, 14, currentY);
                     doc.setTextColor(30, 41, 59);
                     doc.text(`${table.name} (${count}${capStr} personas)`, 14, currentY);
 
@@ -1578,17 +1580,15 @@
                 const totalGuests = state.tables.reduce((sum, t) => sum + (t.guests || []).length, 0);
                 const summaryRows = state.tables.map((t) => ({
                     Mesa: t.name,
-                    'Personas Asignadas': (t.guests || []).length,
-                    'Capacidad Máxima': t.capacity || 'Sin límite'
+                    'Personas Asignadas': (t.guests || []).length
                 }));
                 summaryRows.push({
                     Mesa: 'TOTAL GENERAL',
-                    'Personas Asignadas': totalGuests,
-                    'Capacidad Máxima': ''
+                    'Personas Asignadas': totalGuests
                 });
 
                 const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
-                wsSummary['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 18 }];
+                wsSummary['!cols'] = [{ wch: 26 }, { wch: 20 }];
                 XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen Mesas');
 
                 // Pestaña 3: Estado de la Lista de Apuntados
@@ -1623,8 +1623,7 @@
 
             state.tables.forEach((table) => {
                 const count = (table.guests || []).length;
-                const capStr = table.capacity ? `/${table.capacity}` : '';
-                lines.push(`*${table.name}* (${count}${capStr} pers.)`);
+                lines.push(`*${table.name}* (${count} ${count === 1 ? 'persona' : 'personas'})`);
                 if (count === 0) {
                     lines.push('  - (Sin participantes)');
                 } else {
