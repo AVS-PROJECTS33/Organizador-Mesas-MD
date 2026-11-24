@@ -1,1 +1,1894 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Organizador de Mesas para Cena</title>
 
+    <!-- Fuente Inter para legibilidad premium en móvil -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configuración de Tailwind con soporte de modo oscuro mediante clase 'dark' y fuente Inter
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
+                }
+            }
+        };
+    </script>
+
+    <!-- Aplicación inmediata del tema guardado o del sistema para evitar parpadeos -->
+    <script>
+        (function () {
+            try {
+                const savedTheme = localStorage.getItem('organizador_mesas_theme_v1');
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+                    document.documentElement.classList.add('dark');
+                }
+            } catch (e) {
+                // Ignorar errores de acceso a almacenamiento
+            }
+        })();
+    </script>
+
+    <!-- Librerías para exportación real a PDF (jsPDF + AutoTable) y Excel (SheetJS) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans antialiased min-h-screen pb-28 selection:bg-indigo-100 selection:text-indigo-800 dark:selection:bg-indigo-900 dark:selection:text-indigo-100 transition-colors duration-200">
+
+    <!-- PANTALLA DE BLOQUEO CON CONTRASEÑA (PERSISTENTE EN EL NAVEGADOR) -->
+    <div id="authLockScreen" class="fixed inset-0 z-[100] bg-slate-100 dark:bg-slate-950 flex items-center justify-center p-5 transition-colors duration-200">
+        <div class="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl">
+            <div class="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200 dark:shadow-indigo-950/60">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                </svg>
+            </div>
+
+            <div class="text-center mb-6">
+                <h1 class="text-xl font-extrabold text-slate-900 dark:text-white">Acceso Privado</h1>
+                <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">Introduce la contraseña para entrar al organizador de mesas.</p>
+            </div>
+
+            <form id="authForm" class="space-y-4">
+                <div>
+                    <label for="authPasswordInput" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">Contraseña</label>
+                    <div class="relative">
+                        <input id="authPasswordInput" type="password" required autocomplete="current-password" placeholder="Escribe la contraseña..." class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 rounded-2xl pl-4 pr-12 py-3.5 text-base text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
+                        <button id="btnTogglePasswordVisibility" type="button" title="Mostrar u ocultar contraseña" aria-label="Mostrar u ocultar contraseña" class="absolute right-2.5 top-1/2 -translate-y-1/2 p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">
+                            <!-- Icono ojo abierto -->
+                            <svg id="iconEyeOpen" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                            </svg>
+                            <!-- Icono ojo tachado -->
+                            <svg id="iconEyeClosed" class="hidden w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <p id="authErrorMsg" class="hidden text-xs font-semibold text-rose-600 dark:text-rose-400 mt-2">Contraseña incorrecta. Revisa mayúsculas y números.</p>
+                </div>
+
+                <button type="submit" class="w-full py-3.5 px-5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-bold text-sm shadow-lg shadow-indigo-200 dark:shadow-indigo-950/60 transition">
+                    Entrar a la app
+                </button>
+            </form>
+
+            <p class="text-[11px] text-center text-slate-400 dark:text-slate-500 mt-4">
+                Una vez validada, tu sesión quedará guardada en este navegador.
+            </p>
+        </div>
+    </div>
+
+    <!-- Contenedor principal centrado con ancho óptimo para móvil y tablet -->
+    <div id="appMainContainer" class="hidden max-w-lg mx-auto min-h-screen bg-slate-50 dark:bg-slate-900 shadow-xl sm:border-x sm:border-slate-200 dark:sm:border-slate-800 flex flex-col relative transition-colors duration-200">
+
+        <!-- CABECERA FIJA SUPERIOR -->
+        <header class="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-4 pt-3.5 pb-3 transition-colors duration-200">
+            <!-- Fila superior: Nombre del evento + Modo Claro/Oscuro + Lista + Exportar -->
+            <div class="flex items-center justify-between gap-2 mb-3">
+                <button id="btnEditEventName" type="button" class="flex items-center gap-1.5 text-left min-w-0 group">
+                    <span id="eventNameDisplay" class="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">Cena de Grupo</span>
+                    <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 shrink-0 transition" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                    </svg>
+                </button>
+
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <!-- Botón Modo Claro / Oscuro -->
+                    <button id="btnToggleTheme" type="button" title="Cambiar modo claro/oscuro" aria-label="Cambiar modo claro/oscuro" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 text-slate-600 dark:text-amber-300 transition">
+                        <!-- Icono Sol (visible en oscuro) -->
+                        <svg id="iconSun" class="hidden w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                        </svg>
+                        <!-- Icono Luna (visible en claro) -->
+                        <svg id="iconMoon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                        </svg>
+                    </button>
+
+                    <!-- Botón Lista de Apuntados (al lado de Exportar) -->
+                    <button id="btnOpenAttendees" type="button" class="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 active:scale-95 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 text-xs font-semibold px-2.5 py-2 rounded-xl transition">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                        </svg>
+                        <span>Lista</span>
+                        <span id="attendeesBadgeCount" class="text-[10px] font-bold bg-indigo-600 text-white px-1.5 py-0.5 rounded-full leading-none">0/71</span>
+                    </button>
+
+                    <!-- Botón rápido para abrir opciones de descarga (PDF / Excel) -->
+                    <button id="btnOpenExportHeader" type="button" class="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold px-2.5 sm:px-3 py-2 rounded-xl shadow-sm shadow-emerald-200 dark:shadow-none transition">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                        <span>Exportar</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tarjetas de Resumen Rápido (Total Mesas y Total Personas) -->
+            <div class="grid grid-cols-2 gap-2.5 mb-3">
+                <div class="bg-indigo-50/80 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/60 rounded-2xl px-3.5 py-2.5 flex items-center justify-between">
+                    <div>
+                        <p class="text-[11px] font-semibold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">Mesas</p>
+                        <p id="totalTablesCount" class="text-xl font-extrabold text-indigo-900 dark:text-indigo-100 leading-tight">0</p>
+                    </div>
+                    <div class="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-sm">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="bg-amber-50/80 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900/60 rounded-2xl px-3.5 py-2.5 flex items-center justify-between">
+                    <div>
+                        <p class="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">En Mesas</p>
+                        <p id="totalGuestsCount" class="text-xl font-extrabold text-amber-900 dark:text-amber-100 leading-tight">0</p>
+                    </div>
+                    <div class="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-sm">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Barra de búsqueda de personas o mesas -->
+            <div class="relative">
+                <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <input id="searchInput" type="search" placeholder="Buscar persona o mesa..." class="w-full bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-800 rounded-2xl pl-10 pr-9 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
+                <button id="btnClearSearch" type="button" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-full">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- CONTENIDO PRINCIPAL: LISTA DE MESAS -->
+        <main id="tablesContainer" class="flex-1 p-4 space-y-4">
+            <!-- Las tarjetas de mesas se renderizan dinámicamente aquí -->
+        </main>
+
+        <!-- BARRA INFERIOR FIJA PARA ACCIÓN PRINCIPAL CON EL PULGAR -->
+        <nav class="fixed bottom-0 left-0 right-0 z-30 pointer-events-none">
+            <div class="max-w-lg mx-auto px-4 pb-4 pt-2 bg-gradient-to-t from-slate-100 via-slate-100/95 dark:from-slate-950 dark:via-slate-950/95 to-transparent pointer-events-auto">
+                <div class="flex items-center gap-2.5">
+                    <button id="btnCreateTable" type="button" class="flex-1 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-bold py-3.5 px-5 rounded-2xl shadow-lg shadow-indigo-300/60 dark:shadow-indigo-950/60 flex items-center justify-center gap-2 transition">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        <span>Crear Nueva Mesa</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- MODALES PERSONALIZADOS (SIN alert() NI confirm())         -->
+    <!-- ========================================================= -->
+
+    <!-- 1. MODAL: CREAR / EDITAR MESA -->
+    <div id="tableModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white dark:bg-slate-900 dark:border dark:border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl transform transition-all">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="tableModalTitle" class="text-lg font-bold text-slate-900 dark:text-white">Nueva Mesa</h2>
+                <button type="button" data-close-modal="tableModal" class="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <form id="tableForm" class="space-y-4">
+                <input type="hidden" id="tableIdInput">
+                <div>
+                    <label for="tableNameInput" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">Nombre de la mesa *</label>
+                    <input id="tableNameInput" type="text" required maxlength="50" placeholder="Ej: Mesa 1 - Familia, Mesa Amigos..." class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 rounded-2xl px-4 py-3 text-base text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
+                </div>
+                <div>
+                    <label for="tableCapacityInput" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">Capacidad máxima (opcional)</label>
+                    <input id="tableCapacityInput" type="number" min="1" max="100" inputmode="numeric" placeholder="Ej: 8 personas (déjalo vacío si es libre)" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 rounded-2xl px-4 py-3 text-base text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
+                </div>
+                <div class="flex gap-2.5 pt-2">
+                    <button type="button" data-close-modal="tableModal" class="flex-1 py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">Cancelar</button>
+                    <button type="submit" class="flex-1 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm shadow-md shadow-indigo-200 dark:shadow-none transition">Guardar Mesa</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 2. MODAL: AÑADIR / EDITAR PARTICIPANTE CON AUTOCOMPLETADO -->
+    <div id="guestModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white dark:bg-slate-900 dark:border dark:border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h2 id="guestModalTitle" class="text-lg font-bold text-slate-900 dark:text-white">Añadir Participante</h2>
+                    <p id="guestModalSubtitle" class="text-xs text-indigo-600 dark:text-indigo-400 font-medium"></p>
+                </div>
+                <button type="button" data-close-modal="guestModal" class="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <form id="guestForm" class="space-y-4">
+                <input type="hidden" id="guestTableIdInput">
+                <input type="hidden" id="guestIdInput">
+                <div>
+                    <label for="guestNameInput" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">Nombre del participante *</label>
+                    <input id="guestNameInput" type="text" required autocomplete="off" maxlength="60" placeholder="Escribe una letra (ej: A) o nombre..." class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 rounded-2xl px-4 py-3 text-base text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
+
+                    <!-- Lista desplegable de sugerencias de apuntados según lo escrito -->
+                    <div id="guestSuggestionsContainer" class="hidden mt-2 bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden shadow-sm">
+                        <div class="px-3 py-1.5 bg-slate-100/80 dark:bg-slate-800 border-b border-slate-200/80 dark:border-slate-700 flex items-center justify-between">
+                            <span id="guestSuggestionsHeader" class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Coincidencias en la lista</span>
+                            <button id="btnHideSuggestions" type="button" class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">Ocultar</button>
+                        </div>
+                        <ul id="guestSuggestionsList" class="max-h-48 overflow-y-auto divide-y divide-slate-200/70 dark:divide-slate-700/70">
+                            <!-- Sugerencias renderizadas dinámicamente -->
+                        </ul>
+                    </div>
+                </div>
+                <div>
+                    <label for="guestNoteInput" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">Nota / Menú / Alergia (opcional)</label>
+                    <input id="guestNoteInput" type="text" maxlength="60" placeholder="Ej: Vegetariano, Sin gluten, Menú infantil..." class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
+                    <!-- Chips rápidos de menú para tocar con un dedo -->
+                    <div class="flex flex-wrap gap-1.5 mt-2">
+                        <button type="button" class="quick-note-btn text-xs bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-slate-600 dark:text-slate-300 hover:text-indigo-700 dark:hover:text-indigo-300 px-2.5 py-1 rounded-xl font-medium transition">Vegetariano</button>
+                        <button type="button" class="quick-note-btn text-xs bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-slate-600 dark:text-slate-300 hover:text-indigo-700 dark:hover:text-indigo-300 px-2.5 py-1 rounded-xl font-medium transition">Sin gluten</button>
+                        <button type="button" class="quick-note-btn text-xs bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-slate-600 dark:text-slate-300 hover:text-indigo-700 dark:hover:text-indigo-300 px-2.5 py-1 rounded-xl font-medium transition">Menú infantil</button>
+                        <button type="button" class="quick-note-btn text-xs bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-slate-600 dark:text-slate-300 hover:text-indigo-700 dark:hover:text-indigo-300 px-2.5 py-1 rounded-xl font-medium transition">Alergia frutos secos</button>
+                    </div>
+                </div>
+                <div class="flex gap-2.5 pt-2">
+                    <button type="button" data-close-modal="guestModal" class="flex-1 py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">Cerrar</button>
+                    <button type="submit" class="flex-1 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm shadow-md shadow-indigo-200 dark:shadow-none transition">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 3. MODAL: MOVER O ASIGNAR PARTICIPANTE A UNA MESA -->
+    <div id="moveGuestModal" class="hidden fixed inset-0 z-[55] bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white dark:bg-slate-900 dark:border dark:border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h2 id="moveGuestTitle" class="text-lg font-bold text-slate-900 dark:text-white">Cambiar de Mesa</h2>
+                    <p id="moveGuestSubtitle" class="text-xs text-slate-500 dark:text-slate-400"></p>
+                </div>
+                <button type="button" data-close-modal="moveGuestModal" class="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div id="moveTableOptions" class="space-y-2 max-h-64 overflow-y-auto py-1">
+                <!-- Botones de mesas destino -->
+            </div>
+            <button type="button" data-close-modal="moveGuestModal" class="w-full mt-4 py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">Cancelar</button>
+        </div>
+    </div>
+
+    <!-- 4. MODAL: CONFIRMACIÓN DE BORRADO (OBLIGATORIO PARA BORRAR PARTICIPANTES/MESAS) -->
+    <div id="confirmModal" class="hidden fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 dark:border dark:border-slate-800 w-full max-w-sm rounded-3xl p-5 shadow-2xl text-center">
+            <div class="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto mb-3">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+            </div>
+            <h2 id="confirmTitle" class="text-lg font-bold text-slate-900 dark:text-white mb-1.5">¿Confirmar eliminación?</h2>
+            <p id="confirmMessage" class="text-sm text-slate-600 dark:text-slate-300 mb-5 leading-relaxed"></p>
+            <div class="flex gap-2.5">
+                <button id="btnCancelConfirm" type="button" class="flex-1 py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">Cancelar</button>
+                <button id="btnAcceptConfirm" type="button" class="flex-1 py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm shadow-md shadow-rose-200 dark:shadow-none transition">Sí, borrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. MODAL: EXPORTAR (PDF, EXCEL Y COPIAR TEXTO) -->
+    <div id="exportModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white dark:bg-slate-900 dark:border dark:border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900 dark:text-white">Exportar Distribución</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Descarga o comparte todas las mesas y comensales</p>
+                </div>
+                <button type="button" data-close-modal="exportModal" class="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div class="space-y-2.5">
+                <!-- Opción PDF -->
+                <button id="btnDownloadPDF" type="button" class="w-full flex items-center gap-3.5 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-rose-300 dark:hover:border-rose-700 hover:bg-rose-50/50 dark:hover:bg-rose-950/40 active:scale-[0.99] text-left transition">
+                    <div class="w-11 h-11 rounded-xl bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 font-extrabold text-xs">PDF</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold text-slate-900 dark:text-white text-sm">Descargar documento PDF</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Listo para imprimir o enviar al restaurante</p>
+                    </div>
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                </button>
+
+                <!-- Opción Excel -->
+                <button id="btnDownloadExcel" type="button" class="w-full flex items-center gap-3.5 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/40 active:scale-[0.99] text-left transition">
+                    <div class="w-11 h-11 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0 font-extrabold text-xs">XLSX</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold text-slate-900 dark:text-white text-sm">Descargar hoja de Excel (.xlsx)</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Incluye resumen, mesas y estado de apuntados</p>
+                    </div>
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                </button>
+
+                <!-- Opción Copiar para WhatsApp -->
+                <button id="btnCopySummary" type="button" class="w-full flex items-center gap-3.5 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/40 active:scale-[0.99] text-left transition">
+                    <div class="w-11 h-11 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold text-slate-900 dark:text-white text-sm">Copiar texto para WhatsApp</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Copia el listado formateado al portapapeles</p>
+                    </div>
+                </button>
+            </div>
+
+            <button type="button" data-close-modal="exportModal" class="w-full mt-4 py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">Cerrar</button>
+        </div>
+    </div>
+
+    <!-- 6. MODAL: EDITAR NOMBRE DEL EVENTO -->
+    <div id="eventModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white dark:bg-slate-900 dark:border dark:border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-slate-900 dark:text-white">Nombre de la Cena</h2>
+                <button type="button" data-close-modal="eventModal" class="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="eventForm" class="space-y-4">
+                <div>
+                    <label for="eventNameInput" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">Título del evento</label>
+                    <input id="eventNameInput" type="text" required maxlength="60" placeholder="Ej: Cena de Navidad 2026" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 rounded-2xl px-4 py-3 text-base text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
+                </div>
+                <div class="flex gap-2.5">
+                    <button type="button" data-close-modal="eventModal" class="flex-1 py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm transition">Cancelar</button>
+                    <button type="submit" class="flex-1 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm shadow-md shadow-indigo-200 dark:shadow-none transition">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 7. MODAL: LISTA DE APUNTADOS A LA CENA (CON TICK VERDE AUTOMÁTICO) -->
+    <div id="attendeesModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white dark:bg-slate-900 dark:border dark:border-slate-800 w-full max-w-md h-[88vh] sm:h-[82vh] rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl flex flex-col">
+            <!-- Cabecera del modal -->
+            <div class="flex items-start justify-between gap-2 mb-3 shrink-0">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900 dark:text-white">Lista de Apuntados</h2>
+                    <p id="attendeesSummaryText" class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">0 de 71 en mesa</p>
+                </div>
+                <button type="button" data-close-modal="attendeesModal" class="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <!-- Barra de progreso visual -->
+            <div class="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mb-3 shrink-0">
+                <div id="attendeesProgressBar" class="h-full bg-emerald-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+
+            <!-- Buscador interno + botón añadir persona extra a la lista -->
+            <div class="flex gap-2 mb-3 shrink-0">
+                <div class="relative flex-1">
+                    <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    <input id="attendeesSearchInput" type="search" placeholder="Filtrar por inicial o nombre..." class="w-full bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-indigo-400 rounded-2xl pl-9 pr-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition">
+                </div>
+                <button id="btnToggleAddAttendee" type="button" title="Añadir nuevo apuntado a la lista" class="px-3 py-2 rounded-2xl bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 text-xs font-bold shrink-0 transition">
+                    + Nuevo
+                </button>
+            </div>
+
+            <!-- Mini formulario desplegable para añadir a alguien nuevo a la lista maestra -->
+            <form id="addAttendeeForm" class="hidden flex gap-2 mb-3 shrink-0">
+                <input id="newAttendeeNameInput" type="text" maxlength="60" placeholder="Nombre del nuevo apuntado..." class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white outline-none">
+                <button type="submit" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition">Añadir</button>
+            </form>
+
+            <!-- Pestañas de filtro: Todos / Pendientes / En mesa -->
+            <div class="grid grid-cols-3 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl mb-3 shrink-0">
+                <button type="button" data-attendee-filter="all" class="attendee-filter-btn py-1.5 rounded-xl text-xs font-bold transition">Todos</button>
+                <button type="button" data-attendee-filter="pending" class="attendee-filter-btn py-1.5 rounded-xl text-xs font-bold transition">Faltan</button>
+                <button type="button" data-attendee-filter="assigned" class="attendee-filter-btn py-1.5 rounded-xl text-xs font-bold transition">En mesa</button>
+            </div>
+
+            <!-- Listado scrollable de apuntados -->
+            <div id="attendeesListContainer" class="flex-1 overflow-y-auto -mx-1 px-1 space-y-1.5">
+                <!-- Filas de apuntados generadas dinámicamente -->
+            </div>
+
+            <button type="button" data-close-modal="attendeesModal" class="w-full mt-3 py-3 px-4 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-sm shrink-0 transition">Cerrar</button>
+        </div>
+    </div>
+
+    <!-- NOTIFICACIÓN FLOTANTE (TOAST) EN LUGAR DE alert() -->
+    <div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-[70] w-[92%] max-w-sm pointer-events-none space-y-2"></div>
+
+    <!-- ========================================================= -->
+    <!-- LÓGICA DE LA APLICACIÓN EN JAVASCRIPT                     -->
+    <!-- ========================================================= -->
+    <script>
+        /**
+         * Claves usadas para guardar los datos, el tema y la sesión de acceso en el dispositivo del usuario.
+         */
+        const STORAGE_KEY = 'organizador_mesas_cena_v1';
+        const THEME_KEY = 'organizador_mesas_theme_v1';
+        const AUTH_KEY = 'organizador_mesas_auth_v1';
+        const APP_PASSWORD = 'Comitedefiestas33';
+
+        /**
+         * Lista oficial de los 71 apuntados a la cena (sin números, solo nombres).
+         */
+        const DEFAULT_ATTENDEES = [
+            'Alberto Villar Sanchez',
+            'Jordi Perales gavilan',
+            'Enzo Torres',
+            'Jaume Parera',
+            'Laia Mingote',
+            'Luis Perez',
+            'Cristina Campillejo Vicente',
+            'Tania Santos',
+            'Jean Carlos de los Dolores Quimís',
+            'Raquel Tarres',
+            'Silvia Rodriguez',
+            'David García Piñeiro',
+            'Luna Bouso',
+            'Lorena Prieto coll',
+            'Pol Moreno',
+            'Isaac Martos Sais',
+            'Angel Aguilera',
+            'Angel Arana',
+            'Ian Silva',
+            'Yessica Paola Zabala',
+            'Sergi Marsu',
+            'Josan Mora Castro',
+            'Nico carrillo gilbert',
+            'Raúl Jodar Pérez',
+            'Yessica Barrero',
+            'Ivan López cano',
+            'Lucia Pozas navarro',
+            'Daniel Canalejo Sánchez',
+            'Noelia Velasco',
+            'Mireia Gutierrez',
+            'Melani Adán zabala',
+            'Jose Navarro',
+            'Cristian Martínez',
+            'Miguel Angel Raya Fenandez',
+            'Kilian Morato del Olmo',
+            'Jonathan Torres García',
+            'Eddy S.P',
+            'Marina Muñoz',
+            'Adrià Crosas',
+            'Verónica Medina',
+            'Alejandro Sansaloni puerto',
+            'Anabel Blázquez',
+            'Laura Urbaneja Pereira',
+            'Natalia Pérez',
+            'Elsa Salmoral',
+            'Judit Matas Anguita',
+            'Raul Moreno Merino',
+            'Ignasi Larios',
+            'Nicolle Rosales',
+            'Hector Fontecha',
+            'Alfonso Gomez Torres',
+            'Merche Lara',
+            'Naim Klauco',
+            'Elena Palomares',
+            'Paula Blanco',
+            'Enric Mariscal',
+            'Melody Rollon',
+            'David Moreno Ortega',
+            'Xenia Simón',
+            'Montse Font',
+            'Sonia Bosse Gonzalez',
+            'Javier Asenjo',
+            'Varazou Keita',
+            'Jorge Cayuela',
+            'Ramón Pastelero Corbacho',
+            'Chema Aguilera',
+            'Miquel Torrent Roca',
+            'Patrick Crescini',
+            'Paco Quiros',
+            'Raúl Sanchez',
+            'Jose Antonio Mateos Alvarado'
+        ];
+
+        /**
+         * Estado principal de la aplicación en memoria.
+         */
+        let state = {
+            eventName: 'Cena de Grupo',
+            tables: [],
+            attendees: [...DEFAULT_ATTENDEES]
+        };
+
+        /**
+         * Variables auxiliares de interfaz (búsqueda, filtros y confirmación pendiente).
+         */
+        let searchQuery = '';
+        let attendeeSearchQuery = '';
+        let attendeeFilter = 'all'; // 'all' | 'pending' | 'assigned'
+        let pendingConfirmAction = null;
+
+        // =========================================================
+        // UTILIDADES GENERALES
+        // =========================================================
+
+        /**
+         * Genera un identificador único ligero compatible con todos los navegadores móviles.
+         */
+        function generateId(prefix = 'id') {
+            return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        /**
+         * Normaliza texto eliminando tildes y pasando a minúsculas para búsquedas y comparaciones exactas.
+         */
+        function normalizeText(str) {
+            return String(str || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        /**
+         * Escapa caracteres HTML peligrosos antes de inyectar texto en plantillas DOM.
+         */
+        function escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        /**
+         * Muestra una notificación flotante temporal en la parte superior.
+         */
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+
+            const colors = {
+                success: 'bg-slate-900 dark:bg-emerald-600 text-white',
+                info: 'bg-indigo-600 text-white',
+                error: 'bg-rose-600 text-white'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `${colors[type] || colors.success} px-4 py-3 rounded-2xl shadow-xl text-xs sm:text-sm font-semibold flex items-center justify-center text-center transition-all duration-300 opacity-0 -translate-y-2`;
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('opacity-0', '-translate-y-2');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 2600);
+        }
+
+        /**
+         * Abre un modal por su ID.
+         */
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        /**
+         * Cierra un modal por su ID.
+         */
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.add('hidden');
+        }
+
+        /**
+         * Abre el modal de confirmación personalizado (sustituye a confirm()).
+         */
+        function openConfirmModal(title, message, onConfirm, acceptText = 'Sí, borrar') {
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmMessage').textContent = message;
+            document.getElementById('btnAcceptConfirm').textContent = acceptText;
+            pendingConfirmAction = onConfirm;
+            openModal('confirmModal');
+        }
+
+        // =========================================================
+        // MODO CLARO / OSCURO
+        // =========================================================
+
+        /**
+         * Actualiza la visibilidad de los iconos de sol y luna según el tema actual.
+         */
+        function updateThemeIcons() {
+            const isDark = document.documentElement.classList.contains('dark');
+            const sun = document.getElementById('iconSun');
+            const moon = document.getElementById('iconMoon');
+            if (!sun || !moon) return;
+
+            if (isDark) {
+                sun.classList.remove('hidden');
+                moon.classList.add('hidden');
+            } else {
+                sun.classList.add('hidden');
+                moon.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * Alterna entre modo claro y modo oscuro y persiste la preferencia en localStorage.
+         */
+        function toggleTheme() {
+            const isDark = document.documentElement.classList.toggle('dark');
+            try {
+                localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
+            } catch (error) {
+                console.error('No se pudo guardar el tema:', error);
+            }
+            updateThemeIcons();
+        }
+
+        // =========================================================
+        // CONTROL DE ACCESO CON CONTRASEÑA (PERSISTENTE)
+        // =========================================================
+
+        /**
+         * Comprueba si este navegador ya tiene el acceso validado en localStorage.
+         */
+        function isAuthenticated() {
+            try {
+                return localStorage.getItem(AUTH_KEY) === 'granted';
+            } catch (error) {
+                return false;
+            }
+        }
+
+        /**
+         * Muestra la app o la pantalla de bloqueo según el estado de autenticación.
+         */
+        function applyAuthUI(unlocked) {
+            const lockScreen = document.getElementById('authLockScreen');
+            const mainContainer = document.getElementById('appMainContainer');
+            const errorMsg = document.getElementById('authErrorMsg');
+            const passInput = document.getElementById('authPasswordInput');
+
+            if (unlocked) {
+                lockScreen.classList.add('hidden');
+                mainContainer.classList.remove('hidden');
+            } else {
+                mainContainer.classList.add('hidden');
+                lockScreen.classList.remove('hidden');
+                if (errorMsg) errorMsg.classList.add('hidden');
+                if (passInput) {
+                    passInput.value = '';
+                    passInput.classList.remove('border-rose-500', 'dark:border-rose-500');
+                }
+            }
+        }
+
+        /**
+         * Valida la contraseña introducida y registra el acceso en el navegador.
+         */
+        function handleAuthSubmit(event) {
+            event.preventDefault();
+            const passInput = document.getElementById('authPasswordInput');
+            const errorMsg = document.getElementById('authErrorMsg');
+            const entered = passInput.value.trim();
+
+            if (entered === APP_PASSWORD) {
+                try {
+                    localStorage.setItem(AUTH_KEY, 'granted');
+                } catch (error) {
+                    console.error('No se pudo guardar la sesión en localStorage:', error);
+                }
+                errorMsg.classList.add('hidden');
+                passInput.classList.remove('border-rose-500', 'dark:border-rose-500');
+                applyAuthUI(true);
+                showToast('Acceso concedido. Guardado en este navegador.');
+            } else {
+                errorMsg.classList.remove('hidden');
+                passInput.classList.add('border-rose-500', 'dark:border-rose-500');
+                passInput.focus();
+                passInput.select();
+            }
+        }
+
+        /**
+         * Alterna entre ocultar o mostrar el texto de la contraseña en el campo de acceso.
+         */
+        function toggleAuthPasswordVisibility() {
+            const passInput = document.getElementById('authPasswordInput');
+            const eyeOpen = document.getElementById('iconEyeOpen');
+            const eyeClosed = document.getElementById('iconEyeClosed');
+            if (!passInput) return;
+
+            const isHidden = passInput.type === 'password';
+            passInput.type = isHidden ? 'text' : 'password';
+            if (isHidden) {
+                eyeOpen.classList.add('hidden');
+                eyeClosed.classList.remove('hidden');
+            } else {
+                eyeOpen.classList.remove('hidden');
+                eyeClosed.classList.add('hidden');
+            }
+        }
+
+        // =========================================================
+        // PERSISTENCIA EN LOCALSTORAGE Y ESTADO DE APUNTADOS
+        // =========================================================
+
+        /**
+         * Carga el estado desde localStorage o inicializa con una primera mesa lista y los 71 apuntados.
+         */
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    state.eventName = parsed.eventName || 'Cena de Grupo';
+                    state.tables = Array.isArray(parsed.tables) ? parsed.tables : [];
+                    state.attendees = Array.isArray(parsed.attendees) && parsed.attendees.length > 0
+                        ? parsed.attendees
+                        : [...DEFAULT_ATTENDEES];
+                    return;
+                }
+            } catch (error) {
+                console.error('Error al cargar datos guardados:', error);
+            }
+
+            // Estado inicial por defecto si no hay datos previos
+            state = {
+                eventName: 'Cena de Grupo',
+                tables: [
+                    {
+                        id: generateId('mesa'),
+                        name: 'Mesa 1',
+                        capacity: 10,
+                        collapsed: false,
+                        guests: []
+                    }
+                ],
+                attendees: [...DEFAULT_ATTENDEES]
+            };
+            saveState();
+        }
+
+        /**
+         * Guarda el estado actual en localStorage.
+         */
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            } catch (error) {
+                console.error('Error al guardar en localStorage:', error);
+                showToast('No se pudo guardar automáticamente en el dispositivo.', 'error');
+            }
+        }
+
+        /**
+         * Construye un mapa rápido de personas ya sentadas: nombre normalizado -> información de mesa.
+         */
+        function getAssignedMap() {
+            const map = new Map();
+            state.tables.forEach((table) => {
+                (table.guests || []).forEach((guest) => {
+                    const key = normalizeText(guest.name);
+                    if (key && !map.has(key)) {
+                        map.set(key, {
+                            tableId: table.id,
+                            tableName: table.name,
+                            guestId: guest.id
+                        });
+                    }
+                });
+            });
+            return map;
+        }
+
+        // =========================================================
+        // RENDERIZADO DE LA INTERFAZ PRINCIPAL
+        // =========================================================
+
+        /**
+         * Actualiza contadores globales, insignia de apuntados y tarjetas de mesas.
+         */
+        function render() {
+            const assignedMap = getAssignedMap();
+            const totalTables = state.tables.length;
+            const totalGuests = state.tables.reduce((acc, t) => acc + (t.guests ? t.guests.length : 0), 0);
+
+            // Actualizar cabecera
+            document.getElementById('eventNameDisplay').textContent = state.eventName;
+            document.getElementById('totalTablesCount').textContent = totalTables;
+            document.getElementById('totalGuestsCount').textContent = totalGuests;
+
+            // Calcular cuántos de la lista maestra ya tienen mesa
+            const assignedFromList = state.attendees.filter((name) => assignedMap.has(normalizeText(name))).length;
+            document.getElementById('attendeesBadgeCount').textContent = `${assignedFromList}/${state.attendees.length}`;
+
+            // Renderizar las mesas
+            renderTables();
+
+            // Si el modal de apuntados está abierto, mantenerlo sincronizado en tiempo real
+            const attendeesModal = document.getElementById('attendeesModal');
+            if (attendeesModal && !attendeesModal.classList.contains('hidden')) {
+                renderAttendeesModal();
+            }
+        }
+
+        /**
+         * Renderiza todas las tarjetas de mesas aplicando el filtro de búsqueda si existe.
+         */
+        function renderTables() {
+            const container = document.getElementById('tablesContainer');
+            const normQuery = normalizeText(searchQuery);
+
+            if (state.tables.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-white dark:bg-slate-800/70 border border-dashed border-slate-300 dark:border-slate-700 rounded-3xl p-8 text-center mt-4">
+                        <div class="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-3">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-base font-bold text-slate-900 dark:text-white">Todavía no hay mesas</h3>
+                        <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">Pulsa <strong>Crear Nueva Mesa</strong> abajo para empezar a organizar la cena.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let visibleTablesCount = 0;
+            const htmlParts = [];
+
+            state.tables.forEach((table) => {
+                const tableMatches = !normQuery || normalizeText(table.name).includes(normQuery);
+                const matchingGuests = (table.guests || []).filter((g) => {
+                    if (!normQuery) return true;
+                    return normalizeText(g.name).includes(normQuery) || normalizeText(g.note).includes(normQuery);
+                });
+
+                if (normQuery && !tableMatches && matchingGuests.length === 0) {
+                    return;
+                }
+
+                visibleTablesCount++;
+                const guestsToShow = (normQuery && !tableMatches) ? matchingGuests : (table.guests || []);
+                const guestCount = (table.guests || []).length;
+                const hasCap = Number.isInteger(table.capacity) && table.capacity > 0;
+                const isOverCap = hasCap && guestCount > table.capacity;
+                const isFull = hasCap && guestCount === table.capacity;
+
+                let countBadgeClass = 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300';
+                if (isOverCap) {
+                    countBadgeClass = 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300';
+                } else if (isFull) {
+                    countBadgeClass = 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300';
+                }
+
+                const countLabel = hasCap
+                    ? `${guestCount} / ${table.capacity} pers.`
+                    : `${guestCount} ${guestCount === 1 ? 'persona' : 'personas'}`;
+
+                const isCollapsed = Boolean(table.collapsed) && !normQuery;
+
+                const guestsHtml = guestsToShow.length === 0
+                    ? `<div class="py-5 px-4 text-center text-xs text-slate-400 dark:text-slate-500">Sin participantes aún. Pulsa <strong>+ Añadir</strong> para sentar comensales.</div>`
+                    : `<ul class="divide-y divide-slate-100 dark:divide-slate-800">
+                        ${guestsToShow.map((guest, idx) => `
+                            <li class="px-4 py-2.5 flex items-center justify-between gap-2 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition">
+                                <div class="flex items-center gap-2.5 min-w-0">
+                                    <span class="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] font-bold flex items-center justify-center shrink-0">${idx + 1}</span>
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">${escapeHtml(guest.name)}</p>
+                                        ${guest.note ? `<p class="text-[11px] font-medium text-amber-600 dark:text-amber-400 truncate">${escapeHtml(guest.note)}</p>` : ''}
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-1 shrink-0">
+                                    ${state.tables.length > 1 ? `
+                                        <button type="button" data-action="move-guest" data-table-id="${table.id}" data-guest-id="${guest.id}" title="Cambiar de mesa" class="p-2 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                                            </svg>
+                                        </button>
+                                    ` : ''}
+                                    <button type="button" data-action="edit-guest" data-table-id="${table.id}" data-guest-id="${guest.id}" title="Editar participante" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                                        </svg>
+                                    </button>
+                                    <button type="button" data-action="delete-guest" data-table-id="${table.id}" data-guest-id="${guest.id}" title="Borrar participante" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </li>
+                        `).join('')}
+                    </ul>`;
+
+                htmlParts.push(`
+                    <section class="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden transition-colors duration-200">
+                        <!-- Cabecera de la mesa -->
+                        <div class="px-4 py-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                            <button type="button" data-action="toggle-table" data-table-id="${table.id}" class="flex items-center gap-2.5 min-w-0 text-left flex-1">
+                                <svg class="w-4 h-4 text-slate-400 shrink-0 transition-transform ${isCollapsed ? '-rotate-90' : ''}" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                                <div class="min-w-0">
+                                    <h3 class="text-base font-bold text-slate-900 dark:text-white truncate">${escapeHtml(table.name)}</h3>
+                                    <div class="flex items-center gap-1.5 mt-0.5">
+                                        <span class="inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded-full ${countBadgeClass}">
+                                            ${countLabel}
+                                        </span>
+                                        ${isOverCap ? `<span class="text-[10px] font-bold text-rose-600 dark:text-rose-400">Excede capacidad</span>` : ''}
+                                    </div>
+                                </div>
+                            </button>
+
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button type="button" data-action="add-guest" data-table-id="${table.id}" class="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    <span>Añadir</span>
+                                </button>
+                                <button type="button" data-action="edit-table" data-table-id="${table.id}" title="Editar mesa" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700 transition">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                    </svg>
+                                </button>
+                                <button type="button" data-action="delete-table" data-table-id="${table.id}" title="Borrar mesa" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Lista de participantes de la mesa -->
+                        <div class="${isCollapsed ? 'hidden' : ''}">
+                            ${guestsHtml}
+                        </div>
+                    </section>
+                `);
+            });
+
+            if (visibleTablesCount === 0) {
+                container.innerHTML = `
+                    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-7 text-center">
+                        <p class="text-sm font-bold text-slate-800 dark:text-slate-100">Sin resultados para "${escapeHtml(searchQuery)}"</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Prueba con otro nombre o borra el buscador.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = htmlParts.join('');
+        }
+
+        // =========================================================
+        // GESTIÓN DE MESAS
+        // =========================================================
+
+        function openCreateTableModal() {
+            document.getElementById('tableModalTitle').textContent = 'Nueva Mesa';
+            document.getElementById('tableIdInput').value = '';
+            document.getElementById('tableNameInput').value = `Mesa ${state.tables.length + 1}`;
+            document.getElementById('tableCapacityInput').value = '';
+            openModal('tableModal');
+            setTimeout(() => {
+                const input = document.getElementById('tableNameInput');
+                input.focus();
+                input.select();
+            }, 60);
+        }
+
+        function openEditTableModal(tableId) {
+            const table = state.tables.find((t) => t.id === tableId);
+            if (!table) return;
+
+            document.getElementById('tableModalTitle').textContent = 'Editar Mesa';
+            document.getElementById('tableIdInput').value = table.id;
+            document.getElementById('tableNameInput').value = table.name;
+            document.getElementById('tableCapacityInput').value = table.capacity || '';
+            openModal('tableModal');
+            setTimeout(() => document.getElementById('tableNameInput').focus(), 60);
+        }
+
+        function handleTableFormSubmit(event) {
+            event.preventDefault();
+            const id = document.getElementById('tableIdInput').value;
+            const name = document.getElementById('tableNameInput').value.trim();
+            const rawCap = document.getElementById('tableCapacityInput').value.trim();
+            const capacity = rawCap ? parseInt(rawCap, 10) : null;
+
+            if (!name) return;
+
+            if (id) {
+                const table = state.tables.find((t) => t.id === id);
+                if (table) {
+                    table.name = name;
+                    table.capacity = Number.isInteger(capacity) && capacity > 0 ? capacity : null;
+                    showToast(`Mesa "${name}" actualizada.`);
+                }
+            } else {
+                state.tables.push({
+                    id: generateId('mesa'),
+                    name,
+                    capacity: Number.isInteger(capacity) && capacity > 0 ? capacity : null,
+                    collapsed: false,
+                    guests: []
+                });
+                showToast(`Mesa "${name}" creada.`);
+            }
+
+            saveState();
+            render();
+            closeModal('tableModal');
+        }
+
+        function toggleTableCollapse(tableId) {
+            const table = state.tables.find((t) => t.id === tableId);
+            if (!table) return;
+            table.collapsed = !table.collapsed;
+            saveState();
+            renderTables();
+        }
+
+        function confirmDeleteTable(tableId) {
+            const table = state.tables.find((t) => t.id === tableId);
+            if (!table) return;
+            const count = (table.guests || []).length;
+            const msg = count > 0
+                ? `Se eliminará "${table.name}" junto con sus ${count} ${count === 1 ? 'participante' : 'participantes'}. Esta acción no se puede deshacer.`
+                : `¿Seguro que quieres eliminar "${table.name}"?`;
+
+            openConfirmModal('Eliminar mesa', msg, () => {
+                state.tables = state.tables.filter((t) => t.id !== tableId);
+                saveState();
+                render();
+                showToast(`Mesa "${table.name}" eliminada.`, 'info');
+            });
+        }
+
+        // =========================================================
+        // GESTIÓN DE PARTICIPANTES Y AUTOCOMPLETADO POR INICIAL
+        // =========================================================
+
+        function openAddGuestModal(tableId) {
+            const table = state.tables.find((t) => t.id === tableId);
+            if (!table) return;
+
+            document.getElementById('guestModalTitle').textContent = 'Añadir Participante';
+            document.getElementById('guestModalSubtitle').textContent = `En: ${table.name}`;
+            document.getElementById('guestTableIdInput').value = table.id;
+            document.getElementById('guestIdInput').value = '';
+            document.getElementById('guestNameInput').value = '';
+            document.getElementById('guestNoteInput').value = '';
+            hideGuestSuggestions();
+            openModal('guestModal');
+            setTimeout(() => document.getElementById('guestNameInput').focus(), 60);
+        }
+
+        function openEditGuestModal(tableId, guestId) {
+            const table = state.tables.find((t) => t.id === tableId);
+            if (!table) return;
+            const guest = (table.guests || []).find((g) => g.id === guestId);
+            if (!guest) return;
+
+            document.getElementById('guestModalTitle').textContent = 'Editar Participante';
+            document.getElementById('guestModalSubtitle').textContent = `En: ${table.name}`;
+            document.getElementById('guestTableIdInput').value = table.id;
+            document.getElementById('guestIdInput').value = guest.id;
+            document.getElementById('guestNameInput').value = guest.name;
+            document.getElementById('guestNoteInput').value = guest.note || '';
+            hideGuestSuggestions();
+            openModal('guestModal');
+            setTimeout(() => document.getElementById('guestNameInput').focus(), 60);
+        }
+
+        function hideGuestSuggestions() {
+            const box = document.getElementById('guestSuggestionsContainer');
+            if (box) box.classList.add('hidden');
+        }
+
+        /**
+         * Muestra sugerencias en vivo desde la lista de apuntados al escribir.
+         * Si se escribe una sola letra (ej. "A"), filtra todos los nombres que empiezan por esa letra.
+         * Si se escriben varias letras, prioriza los que empiezan por ese texto y luego los que lo contienen.
+         */
+        function renderGuestSuggestions(rawValue) {
+            const container = document.getElementById('guestSuggestionsContainer');
+            const list = document.getElementById('guestSuggestionsList');
+            const header = document.getElementById('guestSuggestionsHeader');
+            const norm = normalizeText(rawValue);
+
+            if (!norm) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            const assignedMap = getAssignedMap();
+            let matches = [];
+
+            if (norm.length === 1) {
+                // Coincidencias exactas por inicial del nombre
+                matches = state.attendees.filter((name) => normalizeText(name).startsWith(norm));
+                header.textContent = `Empiezan por "${rawValue.trim().toUpperCase()}" (${matches.length})`;
+            } else {
+                const starts = state.attendees.filter((name) => normalizeText(name).startsWith(norm));
+                const includes = state.attendees.filter((name) => {
+                    const n = normalizeText(name);
+                    return !n.startsWith(norm) && n.includes(norm);
+                });
+                matches = [...starts, ...includes];
+                header.textContent = `Coincidencias en la lista (${matches.length})`;
+            }
+
+            // Ordenar poniendo primero los que aún faltan por sentar
+            matches.sort((a, b) => {
+                const aAssigned = assignedMap.has(normalizeText(a)) ? 1 : 0;
+                const bAssigned = assignedMap.has(normalizeText(b)) ? 1 : 0;
+                if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+                return a.localeCompare(b, 'es');
+            });
+
+            if (matches.length === 0) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            list.innerHTML = matches.map((name) => {
+                const assigned = assignedMap.get(normalizeText(name));
+                return `
+                    <li>
+                        <button type="button" data-pick-suggestion="${escapeHtml(name)}" class="w-full px-3.5 py-2.5 text-left flex items-center justify-between gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition">
+                            <span class="text-sm font-medium ${assigned ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'} truncate">${escapeHtml(name)}</span>
+                            ${assigned ? `
+                                <span class="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full shrink-0">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span class="max-w-[90px] truncate">${escapeHtml(assigned.tableName)}</span>
+                                </span>
+                            ` : `
+                                <span class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">Elegir</span>
+                            `}
+                        </button>
+                    </li>
+                `;
+            }).join('');
+
+            container.classList.remove('hidden');
+        }
+
+        function handleGuestFormSubmit(event) {
+            event.preventDefault();
+            const tableId = document.getElementById('guestTableIdInput').value;
+            const guestId = document.getElementById('guestIdInput').value;
+            const name = document.getElementById('guestNameInput').value.trim();
+            const note = document.getElementById('guestNoteInput').value.trim();
+
+            if (!name) return;
+
+            const table = state.tables.find((t) => t.id === tableId);
+            if (!table) return;
+
+            if (guestId) {
+                const guest = (table.guests || []).find((g) => g.id === guestId);
+                if (guest) {
+                    guest.name = name;
+                    guest.note = note;
+                    showToast(`Participante "${name}" actualizado.`);
+                }
+                saveState();
+                render();
+                closeModal('guestModal');
+                return;
+            }
+
+            // Comprobar si la persona ya estaba anotada en alguna mesa para avisar
+            const assignedMap = getAssignedMap();
+            const existing = assignedMap.get(normalizeText(name));
+
+            if (existing) {
+                showToast(`Aviso: "${name}" ya estaba en ${existing.tableName}, añadido igualmente.`, 'info');
+            } else {
+                showToast(`${name} añadido a ${table.name}.`);
+            }
+
+            table.guests.push({
+                id: generateId('inv'),
+                name,
+                note
+            });
+            table.collapsed = false;
+
+            saveState();
+            render();
+
+            // Limpiar campos para poder seguir añadiendo personas rápido a la misma mesa
+            document.getElementById('guestNameInput').value = '';
+            document.getElementById('guestNoteInput').value = '';
+            hideGuestSuggestions();
+            document.getElementById('guestNameInput').focus();
+        }
+
+        function confirmDeleteGuest(tableId, guestId) {
+            const table = state.tables.find((t) => t.id === tableId);
+            if (!table) return;
+            const guest = (table.guests || []).find((g) => g.id === guestId);
+            if (!guest) return;
+
+            openConfirmModal(
+                'Borrar participante',
+                `¿Seguro que quieres quitar a "${guest.name}" de ${table.name}?`,
+                () => {
+                    table.guests = table.guests.filter((g) => g.id !== guestId);
+                    saveState();
+                    render();
+                    showToast(`"${guest.name}" eliminado de ${table.name}.`, 'info');
+                }
+            );
+        }
+
+        // =========================================================
+        // MOVER PARTICIPANTE / ASIGNAR DESDE LA LISTA DE APUNTADOS
+        // =========================================================
+
+        function openMoveGuestModal(sourceTableId, guestId) {
+            const sourceTable = state.tables.find((t) => t.id === sourceTableId);
+            if (!sourceTable) return;
+            const guest = (sourceTable.guests || []).find((g) => g.id === guestId);
+            if (!guest) return;
+
+            document.getElementById('moveGuestTitle').textContent = 'Cambiar de Mesa';
+            document.getElementById('moveGuestSubtitle').textContent = `Mover a ${guest.name} desde ${sourceTable.name}`;
+
+            const optionsEl = document.getElementById('moveTableOptions');
+            const otherTables = state.tables.filter((t) => t.id !== sourceTableId);
+
+            optionsEl.innerHTML = otherTables.map((t) => {
+                const count = (t.guests || []).length;
+                const capText = t.capacity ? `${count}/${t.capacity}` : `${count} pers.`;
+                return `
+                    <button type="button" data-confirm-move-to="${t.id}" data-source-table="${sourceTableId}" data-guest-id="${guestId}" class="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/50 flex items-center justify-between text-left transition">
+                        <span class="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">${escapeHtml(t.name)}</span>
+                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 ml-2">${capText}</span>
+                    </button>
+                `;
+            }).join('');
+
+            openModal('moveGuestModal');
+        }
+
+        function openAssignAttendeeToTableModal(attendeeName) {
+            if (state.tables.length === 0) {
+                showToast('Crea primero una mesa para asignar personas.', 'info');
+                closeModal('attendeesModal');
+                openCreateTableModal();
+                return;
+            }
+
+            document.getElementById('moveGuestTitle').textContent = 'Asignar a una Mesa';
+            document.getElementById('moveGuestSubtitle').textContent = `Elige mesa para ${attendeeName}`;
+
+            const optionsEl = document.getElementById('moveTableOptions');
+            optionsEl.innerHTML = state.tables.map((t) => {
+                const count = (t.guests || []).length;
+                const capText = t.capacity ? `${count}/${t.capacity}` : `${count} pers.`;
+                return `
+                    <button type="button" data-assign-attendee-table="${t.id}" data-attendee-name="${escapeHtml(attendeeName)}" class="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-emerald-400 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/50 flex items-center justify-between text-left transition">
+                        <span class="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">${escapeHtml(t.name)}</span>
+                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 ml-2">${capText}</span>
+                    </button>
+                `;
+            }).join('');
+
+            openModal('moveGuestModal');
+        }
+
+        // =========================================================
+        // MODAL LISTA DE APUNTADOS (CON TICK VERDE AUTOMÁTICO)
+        // =========================================================
+
+        function openAttendeesModal() {
+            renderAttendeesModal();
+            openModal('attendeesModal');
+        }
+
+        function renderAttendeesModal() {
+            const assignedMap = getAssignedMap();
+            const total = state.attendees.length;
+            const assignedCount = state.attendees.filter((name) => assignedMap.has(normalizeText(name))).length;
+            const pct = total > 0 ? Math.round((assignedCount / total) * 100) : 0;
+
+            document.getElementById('attendeesSummaryText').textContent = `${assignedCount} de ${total} sentados en mesa (${pct}%)`;
+            document.getElementById('attendeesProgressBar').style.width = `${pct}%`;
+
+            // Estilos de botones de filtro
+            document.querySelectorAll('.attendee-filter-btn').forEach((btn) => {
+                const active = btn.dataset.attendeeFilter === attendeeFilter;
+                if (active) {
+                    btn.className = 'attendee-filter-btn py-1.5 rounded-xl text-xs font-bold transition bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm';
+                } else {
+                    btn.className = 'attendee-filter-btn py-1.5 rounded-xl text-xs font-bold transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200';
+                }
+            });
+
+            const normSearch = normalizeText(attendeeSearchQuery);
+            const filtered = state.attendees.filter((name) => {
+                const isAssigned = assignedMap.has(normalizeText(name));
+                if (attendeeFilter === 'pending' && isAssigned) return false;
+                if (attendeeFilter === 'assigned' && !isAssigned) return false;
+                if (!normSearch) return true;
+                if (normSearch.length === 1) {
+                    return normalizeText(name).startsWith(normSearch);
+                }
+                return normalizeText(name).includes(normSearch);
+            });
+
+            const listContainer = document.getElementById('attendeesListContainer');
+
+            if (filtered.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="py-10 text-center text-xs text-slate-400 dark:text-slate-500">
+                        No hay personas que coincidan con este filtro.
+                    </div>
+                `;
+                return;
+            }
+
+            listContainer.innerHTML = filtered.map((name) => {
+                const assigned = assignedMap.get(normalizeText(name));
+                return `
+                    <div class="flex items-center justify-between gap-2 px-3 py-2.5 rounded-2xl border ${assigned ? 'bg-emerald-50/60 dark:bg-emerald-950/25 border-emerald-200/80 dark:border-emerald-900/60' : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/70 dark:border-slate-700/70'} transition">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            ${assigned ? `
+                                <span title="Ya está en mesa" class="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                </span>
+                            ` : `
+                                <span title="Pendiente de mesa" class="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-slate-600 shrink-0"></span>
+                            `}
+                            <div class="min-w-0">
+                                <p class="text-sm font-semibold ${assigned ? 'text-emerald-950 dark:text-emerald-100' : 'text-slate-800 dark:text-slate-100'} truncate">${escapeHtml(name)}</p>
+                                ${assigned ? `<p class="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 truncate">En: ${escapeHtml(assigned.tableName)}</p>` : ''}
+                            </div>
+                        </div>
+
+                        <div class="shrink-0">
+                            ${assigned ? `
+                                <span class="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 px-2 py-1">Listo</span>
+                            ` : `
+                                <button type="button" data-quick-assign="${escapeHtml(name)}" class="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition">
+                                    + Mesa
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function handleAddAttendeeSubmit(event) {
+            event.preventDefault();
+            const input = document.getElementById('newAttendeeNameInput');
+            const name = input.value.trim();
+            if (!name) return;
+
+            const exists = state.attendees.some((a) => normalizeText(a) === normalizeText(name));
+            if (exists) {
+                showToast(`"${name}" ya está en la lista de apuntados.`, 'info');
+                return;
+            }
+
+            state.attendees.push(name);
+            input.value = '';
+            document.getElementById('addAttendeeForm').classList.add('hidden');
+            saveState();
+            render();
+            showToast(`"${name}" añadido a la lista de apuntados.`);
+        }
+
+        // =========================================================
+        // EXPORTACIÓN A PDF, EXCEL (.xlsx) Y WHATSAPP
+        // =========================================================
+
+        function getSafeFileName(ext) {
+            const slug = normalizeText(state.eventName || 'cena-mesas')
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '') || 'cena-mesas';
+            return `${slug}.${ext}`;
+        }
+
+        function exportToPDF() {
+            try {
+                if (!window.jspdf || !window.jspdf.jsPDF) {
+                    showToast('Librería PDF no disponible. Comprueba tu conexión.', 'error');
+                    return;
+                }
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                const totalGuests = state.tables.reduce((sum, t) => sum + (t.guests || []).length, 0);
+                const nowStr = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+                doc.setFontSize(18);
+                doc.setTextColor(30, 41, 59);
+                doc.text(state.eventName || 'Organización de Mesas', 14, 18);
+
+                doc.setFontSize(10);
+                doc.setTextColor(100, 116, 139);
+                doc.text(`Fecha: ${nowStr}   |   Mesas: ${state.tables.length}   |   Total comensales: ${totalGuests}`, 14, 25);
+
+                // Tabla resumen
+                const summaryRows = state.tables.map((t) => [
+                    t.name,
+                    String((t.guests || []).length),
+                    t.capacity ? String(t.capacity) : 'Libre'
+                ]);
+
+                doc.autoTable({
+                    startY: 30,
+                    head: [['Mesa', 'Personas', 'Capacidad']],
+                    body: summaryRows.length ? summaryRows : [['Sin mesas creadas', '0', '-']],
+                    theme: 'grid',
+                    headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+                    styles: { fontSize: 9.5, cellPadding: 2.5 }
+                });
+
+                // Detalle por cada mesa
+                let currentY = doc.lastAutoTable.finalY + 10;
+
+                state.tables.forEach((table) => {
+                    if (currentY > 260) {
+                        doc.addPage();
+                        currentY = 18;
+                    }
+
+                    const count = (table.guests || []).length;
+                    const capStr = table.capacity ? ` / ${table.capacity}` : '';
+                    doc.setFontSize(12);
+                    doc.setTextColor(30, 41, 59);
+                    doc.text(`${table.name} (${count}${capStr} personas)`, 14, currentY);
+
+                    const guestRows = count > 0
+                        ? table.guests.map((g, idx) => [String(idx + 1), g.name, g.note || '-'])
+                        : [['-', 'Sin participantes asignados', '-']];
+
+                    doc.autoTable({
+                        startY: currentY + 3,
+                        head: [['#', 'Participante', 'Nota / Menú']],
+                        body: guestRows,
+                        theme: 'striped',
+                        headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+                        columnStyles: { 0: { cellWidth: 12 } },
+                        styles: { fontSize: 9, cellPadding: 2.2 }
+                    });
+
+                    currentY = doc.lastAutoTable.finalY + 9;
+                });
+
+                doc.save(getSafeFileName('pdf'));
+                showToast('PDF descargado correctamente.');
+                closeModal('exportModal');
+            } catch (error) {
+                console.error('Error al generar PDF:', error);
+                showToast('Error al generar el PDF.', 'error');
+            }
+        }
+
+        function exportToExcel() {
+            try {
+                if (typeof XLSX === 'undefined') {
+                    showToast('Librería Excel no disponible. Comprueba tu conexión.', 'error');
+                    return;
+                }
+
+                const wb = XLSX.utils.book_new();
+                const assignedMap = getAssignedMap();
+
+                // Pestaña 1: Participantes por mesa
+                const detailRows = [];
+                state.tables.forEach((table) => {
+                    const count = (table.guests || []).length;
+                    if (count === 0) {
+                        detailRows.push({
+                            Mesa: table.name,
+                            'Total en Mesa': 0,
+                            'Nº': '',
+                            Participante: '(Vacía)',
+                            'Nota / Menú': ''
+                        });
+                    } else {
+                        table.guests.forEach((guest, idx) => {
+                            detailRows.push({
+                                Mesa: table.name,
+                                'Total en Mesa': count,
+                                'Nº': idx + 1,
+                                Participante: guest.name,
+                                'Nota / Menú': guest.note || ''
+                            });
+                        });
+                    }
+                });
+
+                const wsDetail = XLSX.utils.json_to_sheet(
+                    detailRows.length ? detailRows : [{ Mesa: 'Sin datos', 'Total en Mesa': 0, 'Nº': '', Participante: '', 'Nota / Menú': '' }]
+                );
+                wsDetail['!cols'] = [{ wch: 24 }, { wch: 15 }, { wch: 6 }, { wch: 30 }, { wch: 26 }];
+                XLSX.utils.book_append_sheet(wb, wsDetail, 'Participantes');
+
+                // Pestaña 2: Resumen de Mesas
+                const totalGuests = state.tables.reduce((sum, t) => sum + (t.guests || []).length, 0);
+                const summaryRows = state.tables.map((t) => ({
+                    Mesa: t.name,
+                    'Personas Asignadas': (t.guests || []).length,
+                    'Capacidad Máxima': t.capacity || 'Sin límite'
+                }));
+                summaryRows.push({
+                    Mesa: 'TOTAL GENERAL',
+                    'Personas Asignadas': totalGuests,
+                    'Capacidad Máxima': ''
+                });
+
+                const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+                wsSummary['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 18 }];
+                XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen Mesas');
+
+                // Pestaña 3: Estado de la Lista de Apuntados
+                const attendeesRows = state.attendees.map((name) => {
+                    const assigned = assignedMap.get(normalizeText(name));
+                    return {
+                        Apuntado: name,
+                        'En Mesa': assigned ? 'Sí' : 'No',
+                        'Mesa Asignada': assigned ? assigned.tableName : ''
+                    };
+                });
+                const wsAttendees = XLSX.utils.json_to_sheet(attendeesRows);
+                wsAttendees['!cols'] = [{ wch: 32 }, { wch: 10 }, { wch: 24 }];
+                XLSX.utils.book_append_sheet(wb, wsAttendees, 'Lista Apuntados');
+
+                XLSX.writeFile(wb, getSafeFileName('xlsx'));
+                showToast('Archivo Excel descargado.');
+                closeModal('exportModal');
+            } catch (error) {
+                console.error('Error al generar Excel:', error);
+                showToast('Error al generar el archivo Excel.', 'error');
+            }
+        }
+
+        function copyWhatsAppSummary() {
+            const totalGuests = state.tables.reduce((sum, t) => sum + (t.guests || []).length, 0);
+            const lines = [
+                `*${state.eventName}*`,
+                `Mesas: ${state.tables.length} | Total personas: ${totalGuests}`,
+                ''
+            ];
+
+            state.tables.forEach((table) => {
+                const count = (table.guests || []).length;
+                const capStr = table.capacity ? `/${table.capacity}` : '';
+                lines.push(`*${table.name}* (${count}${capStr} pers.)`);
+                if (count === 0) {
+                    lines.push('  - (Sin participantes)');
+                } else {
+                    table.guests.forEach((guest, idx) => {
+                        const notePart = guest.note ? ` [${guest.note}]` : '';
+                        lines.push(`  ${idx + 1}. ${guest.name}${notePart}`);
+                    });
+                }
+                lines.push('');
+            });
+
+            const text = lines.join('\n').trim();
+
+            try {
+                const tempTextarea = document.createElement('textarea');
+                tempTextarea.value = text;
+                tempTextarea.setAttribute('readonly', '');
+                tempTextarea.style.position = 'fixed';
+                tempTextarea.style.opacity = '0';
+                document.body.appendChild(tempTextarea);
+                tempTextarea.select();
+                tempTextarea.setSelectionRange(0, text.length);
+                const copied = document.execCommand('copy');
+                document.body.removeChild(tempTextarea);
+
+                if (copied) {
+                    showToast('Resumen copiado. ¡Listo para pegar en WhatsApp!');
+                    closeModal('exportModal');
+                } else {
+                    showToast('No se pudo copiar automáticamente.', 'error');
+                }
+            } catch (error) {
+                console.error('Error al copiar texto:', error);
+                showToast('No se pudo copiar al portapapeles.', 'error');
+            }
+        }
+
+        // =========================================================
+        // EDICIÓN DEL EVENTO
+        // =========================================================
+
+        function openEventNameModal() {
+            document.getElementById('eventNameInput').value = state.eventName;
+            openModal('eventModal');
+            setTimeout(() => {
+                const input = document.getElementById('eventNameInput');
+                input.focus();
+                input.select();
+            }, 60);
+        }
+
+        function handleEventFormSubmit(event) {
+            event.preventDefault();
+            const newName = document.getElementById('eventNameInput').value.trim();
+            if (!newName) return;
+            state.eventName = newName;
+            saveState();
+            render();
+            closeModal('eventModal');
+            showToast('Nombre de la cena actualizado.');
+        }
+
+        // =========================================================
+        // ENLACE DE EVENTOS (DELEGACIÓN LIMPIA Y TÁCTIL)
+        // =========================================================
+
+        function bindEvents() {
+            // Pantalla de acceso con contraseña
+            document.getElementById('authForm').addEventListener('submit', handleAuthSubmit);
+            document.getElementById('btnTogglePasswordVisibility').addEventListener('click', toggleAuthPasswordVisibility);
+            document.getElementById('authPasswordInput').addEventListener('input', () => {
+                document.getElementById('authErrorMsg').classList.add('hidden');
+                document.getElementById('authPasswordInput').classList.remove('border-rose-500', 'dark:border-rose-500');
+            });
+
+            // Botón cambiar tema claro/oscuro
+            document.getElementById('btnToggleTheme').addEventListener('click', toggleTheme);
+
+            // Botones de cabecera y barra inferior
+            document.getElementById('btnEditEventName').addEventListener('click', openEventNameModal);
+            document.getElementById('btnOpenAttendees').addEventListener('click', openAttendeesModal);
+            document.getElementById('btnOpenExportHeader').addEventListener('click', () => openModal('exportModal'));
+            document.getElementById('btnCreateTable').addEventListener('click', openCreateTableModal);
+
+            // Buscador principal
+            const searchInput = document.getElementById('searchInput');
+            const btnClearSearch = document.getElementById('btnClearSearch');
+            searchInput.addEventListener('input', (e) => {
+                searchQuery = e.target.value;
+                btnClearSearch.classList.toggle('hidden', !searchQuery);
+                renderTables();
+            });
+            btnClearSearch.addEventListener('click', () => {
+                searchQuery = '';
+                searchInput.value = '';
+                btnClearSearch.classList.add('hidden');
+                renderTables();
+                searchInput.focus();
+            });
+
+            // Delegación de clics en las tarjetas de mesas y participantes
+            document.getElementById('tablesContainer').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-action]');
+                if (!btn) return;
+
+                const { action, tableId, guestId } = btn.dataset;
+                if (action === 'toggle-table') toggleTableCollapse(tableId);
+                else if (action === 'add-guest') openAddGuestModal(tableId);
+                else if (action === 'edit-table') openEditTableModal(tableId);
+                else if (action === 'delete-table') confirmDeleteTable(tableId);
+                else if (action === 'edit-guest') openEditGuestModal(tableId, guestId);
+                else if (action === 'delete-guest') confirmDeleteGuest(tableId, guestId);
+                else if (action === 'move-guest') openMoveGuestModal(tableId, guestId);
+            });
+
+            // Formularios
+            document.getElementById('tableForm').addEventListener('submit', handleTableFormSubmit);
+            document.getElementById('guestForm').addEventListener('submit', handleGuestFormSubmit);
+            document.getElementById('eventForm').addEventListener('submit', handleEventFormSubmit);
+            document.getElementById('addAttendeeForm').addEventListener('submit', handleAddAttendeeSubmit);
+
+            // Autocompletado de nombres en modal de participante
+            const guestNameInput = document.getElementById('guestNameInput');
+            guestNameInput.addEventListener('input', (e) => {
+                renderGuestSuggestions(e.target.value);
+            });
+            document.getElementById('btnHideSuggestions').addEventListener('click', hideGuestSuggestions);
+            document.getElementById('guestSuggestionsList').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-pick-suggestion]');
+                if (!btn) return;
+                guestNameInput.value = btn.dataset.pickSuggestion;
+                hideGuestSuggestions();
+                document.getElementById('guestNoteInput').focus();
+            });
+
+            // Chips rápidos de notas/alergias
+            document.querySelectorAll('.quick-note-btn').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const noteInput = document.getElementById('guestNoteInput');
+                    const tag = btn.textContent.trim();
+                    const current = noteInput.value.trim();
+                    if (!current) {
+                        noteInput.value = tag;
+                    } else if (!normalizeText(current).includes(normalizeText(tag))) {
+                        noteInput.value = `${current}, ${tag}`;
+                    }
+                });
+            });
+
+            // Modal mover / asignar a mesa
+            document.getElementById('moveTableOptions').addEventListener('click', (e) => {
+                const moveBtn = e.target.closest('[data-confirm-move-to]');
+                if (moveBtn) {
+                    const targetId = moveBtn.dataset.confirmMoveTo;
+                    const sourceId = moveBtn.dataset.sourceTable;
+                    const guestId = moveBtn.dataset.guestId;
+
+                    const sourceTable = state.tables.find((t) => t.id === sourceId);
+                    const targetTable = state.tables.find((t) => t.id === targetId);
+                    if (sourceTable && targetTable) {
+                        const idx = sourceTable.guests.findIndex((g) => g.id === guestId);
+                        if (idx !== -1) {
+                            const [guest] = sourceTable.guests.splice(idx, 1);
+                            targetTable.guests.push(guest);
+                            targetTable.collapsed = false;
+                            saveState();
+                            render();
+                            showToast(`${guest.name} movido a ${targetTable.name}.`);
+                        }
+                    }
+                    closeModal('moveGuestModal');
+                    return;
+                }
+
+                const assignBtn = e.target.closest('[data-assign-attendee-table]');
+                if (assignBtn) {
+                    const targetId = assignBtn.dataset.assignAttendeeTable;
+                    const attendeeName = assignBtn.dataset.attendeeName;
+                    const targetTable = state.tables.find((t) => t.id === targetId);
+                    if (targetTable && attendeeName) {
+                        targetTable.guests.push({
+                            id: generateId('inv'),
+                            name: attendeeName,
+                            note: ''
+                        });
+                        targetTable.collapsed = false;
+                        saveState();
+                        render();
+                        showToast(`${attendeeName} asignado a ${targetTable.name}.`);
+                    }
+                    closeModal('moveGuestModal');
+                }
+            });
+
+            // Modal lista de apuntados
+            document.getElementById('attendeesSearchInput').addEventListener('input', (e) => {
+                attendeeSearchQuery = e.target.value;
+                renderAttendeesModal();
+            });
+            document.getElementById('btnToggleAddAttendee').addEventListener('click', () => {
+                const form = document.getElementById('addAttendeeForm');
+                form.classList.toggle('hidden');
+                if (!form.classList.contains('hidden')) {
+                    document.getElementById('newAttendeeNameInput').focus();
+                }
+            });
+            document.querySelectorAll('.attendee-filter-btn').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    attendeeFilter = btn.dataset.attendeeFilter;
+                    renderAttendeesModal();
+                });
+            });
+            document.getElementById('attendeesListContainer').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-quick-assign]');
+                if (!btn) return;
+                openAssignAttendeeToTableModal(btn.dataset.quickAssign);
+            });
+
+            // Botones de exportación
+            document.getElementById('btnDownloadPDF').addEventListener('click', exportToPDF);
+            document.getElementById('btnDownloadExcel').addEventListener('click', exportToExcel);
+            document.getElementById('btnCopySummary').addEventListener('click', copyWhatsAppSummary);
+
+            // Confirmación personalizada
+            document.getElementById('btnCancelConfirm').addEventListener('click', () => {
+                pendingConfirmAction = null;
+                closeModal('confirmModal');
+            });
+            document.getElementById('btnAcceptConfirm').addEventListener('click', () => {
+                const action = pendingConfirmAction;
+                pendingConfirmAction = null;
+                closeModal('confirmModal');
+                if (typeof action === 'function') action();
+            });
+
+            // Botones genéricos de cierre de modales
+            document.querySelectorAll('[data-close-modal]').forEach((btn) => {
+                btn.addEventListener('click', () => closeModal(btn.dataset.closeModal));
+            });
+
+            // Cerrar modal tocando el fondo oscuro
+            ['tableModal', 'guestModal', 'moveGuestModal', 'confirmModal', 'exportModal', 'eventModal', 'attendeesModal'].forEach((id) => {
+                const modal = document.getElementById(id);
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        if (id === 'confirmModal') pendingConfirmAction = null;
+                        closeModal(id);
+                    }
+                });
+            });
+        }
+
+        // Arrancar la app al cargar el documento
+        document.addEventListener('DOMContentLoaded', () => {
+            updateThemeIcons();
+            const unlocked = isAuthenticated();
+            applyAuthUI(unlocked);
+            loadState();
+            bindEvents();
+            render();
+            if (!unlocked) {
+                setTimeout(() => document.getElementById('authPasswordInput').focus(), 100);
+            }
+        });
+    </script>
+</body>
+</html>
