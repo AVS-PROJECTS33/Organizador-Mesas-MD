@@ -36,7 +36,10 @@
                     document.documentElement.classList.add('dark');
                 }
             } catch (e) {
-                // Ignorar errores de acceso a almacenamiento
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (prefersDark) {
+                    document.documentElement.classList.add('dark');
+                }
             }
         })();
     </script>
@@ -88,7 +91,7 @@
             </form>
 
             <p class="text-[11px] text-center text-slate-400 dark:text-slate-500 mt-4">
-                Una vez validada, tu sesión quedará guardada en este navegador.
+                Acceso protegido para el comité organizador.
             </p>
         </div>
     </div>
@@ -100,12 +103,18 @@
         <header class="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-4 pt-3.5 pb-3 transition-colors duration-200">
             <!-- Fila superior: Nombre del evento + Modo Claro/Oscuro + Lista + Exportar -->
             <div class="flex items-center justify-between gap-2 mb-3">
-                <button id="btnEditEventName" type="button" class="flex items-center gap-1.5 text-left min-w-0 group">
-                    <span id="eventNameDisplay" class="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">Cena de Grupo</span>
-                    <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 shrink-0 transition" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
-                    </svg>
-                </button>
+                <div class="min-w-0 flex-1">
+                    <button id="btnEditEventName" type="button" class="flex items-center gap-1.5 text-left max-w-full group">
+                        <span id="eventNameDisplay" class="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">Cena de Grupo</span>
+                        <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 shrink-0 transition" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                        </svg>
+                    </button>
+                    <div class="flex items-center gap-1.5 mt-0.5">
+                        <span id="syncStatusDot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                        <span id="syncStatusText" class="text-[11px] font-medium text-slate-400 dark:text-slate-500">Conectando nube...</span>
+                    </div>
+                </div>
 
                 <div class="flex items-center gap-1.5 shrink-0">
                     <!-- Botón Modo Claro / Oscuro -->
@@ -445,96 +454,128 @@
     <div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-[70] w-[92%] max-w-sm pointer-events-none space-y-2"></div>
 
     <!-- ========================================================= -->
-    <!-- LÓGICA DE LA APLICACIÓN EN JAVASCRIPT                     -->
+    <!-- LÓGICA DE LA APLICACIÓN CON FIREBASE FIRESTORE            -->
     <!-- ========================================================= -->
-    <script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
         /**
-         * Claves usadas para guardar los datos, el tema y la sesión de acceso en el dispositivo del usuario.
+         * Configuración de Firebase del proyecto y claves de persistencia local.
          */
-        const STORAGE_KEY = 'organizador_mesas_cena_v1';
-        const THEME_KEY = 'organizador_mesas_theme_v1';
-        const AUTH_KEY = 'organizador_mesas_auth_v1';
+        const userFirebaseConfig = {
+            apiKey: "AIzaSyDHidKK4LX02yuFbh4MkQNPRXL6Xq2l7YA",
+            authDomain: "organizador-mesas-md.firebaseapp.com",
+            projectId: "organizador-mesas-md",
+            storageBucket: "organizador-mesas-md.firebasestorage.app",
+            messagingSenderId: "188981830060",
+            appId: "1:188981830060:web:2cf6711fd6d78269ed5a09"
+        };
+
+        const firebaseConfig = typeof __firebase_config !== 'undefined'
+            ? JSON.parse(__firebase_config)
+            : userFirebaseConfig;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'organizador-mesas-md';
         const APP_PASSWORD = 'Comitedefiestas33';
+        const STORAGE_UNLOCK_KEY = 'organizador_mesas_unlocked_v1';
+        const STORAGE_THEME_KEY = 'organizador_mesas_theme_v1';
+        const STORAGE_BACKUP_KEY = 'organizador_mesas_backup_v1';
+
+        // Inicialización de Firebase, Auth y Firestore
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const stateDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'cena_organizador', 'estado_principal');
+
+        let currentUser = null;
+        let unsubscribeSnapshot = null;
+        let isUnlocked = false;
+        try {
+            isUnlocked = localStorage.getItem(STORAGE_UNLOCK_KEY) === 'true';
+        } catch (e) {
+            isUnlocked = false;
+        }
 
         /**
          * Lista oficial de los 71 apuntados a la cena (sin números, solo nombres).
          */
         const DEFAULT_ATTENDEES = [
-            'Alberto Villar Sanchez',
-            'Jordi Perales gavilan',
-            'Enzo Torres',
-            'Jaume Parera',
-            'Laia Mingote',
-            'Luis Perez',
-            'Cristina Campillejo Vicente',
-            'Tania Santos',
-            'Jean Carlos de los Dolores Quimís',
-            'Raquel Tarres',
-            'Silvia Rodriguez',
-            'David García Piñeiro',
-            'Luna Bouso',
-            'Lorena Prieto coll',
-            'Pol Moreno',
-            'Isaac Martos Sais',
-            'Angel Aguilera',
-            'Angel Arana',
-            'Ian Silva',
-            'Yessica Paola Zabala',
-            'Sergi Marsu',
-            'Josan Mora Castro',
-            'Nico carrillo gilbert',
-            'Raúl Jodar Pérez',
-            'Yessica Barrero',
-            'Ivan López cano',
-            'Lucia Pozas navarro',
-            'Daniel Canalejo Sánchez',
-            'Noelia Velasco',
-            'Mireia Gutierrez',
-            'Melani Adán zabala',
-            'Jose Navarro',
-            'Cristian Martínez',
-            'Miguel Angel Raya Fenandez',
-            'Kilian Morato del Olmo',
-            'Jonathan Torres García',
-            'Eddy S.P',
-            'Marina Muñoz',
-            'Adrià Crosas',
-            'Verónica Medina',
-            'Alejandro Sansaloni puerto',
-            'Anabel Blázquez',
-            'Laura Urbaneja Pereira',
-            'Natalia Pérez',
-            'Elsa Salmoral',
-            'Judit Matas Anguita',
-            'Raul Moreno Merino',
-            'Ignasi Larios',
-            'Nicolle Rosales',
-            'Hector Fontecha',
-            'Alfonso Gomez Torres',
-            'Merche Lara',
-            'Naim Klauco',
-            'Elena Palomares',
-            'Paula Blanco',
-            'Enric Mariscal',
-            'Melody Rollon',
-            'David Moreno Ortega',
-            'Xenia Simón',
-            'Montse Font',
-            'Sonia Bosse Gonzalez',
-            'Javier Asenjo',
-            'Varazou Keita',
-            'Jorge Cayuela',
-            'Ramón Pastelero Corbacho',
-            'Chema Aguilera',
-            'Miquel Torrent Roca',
-            'Patrick Crescini',
-            'Paco Quiros',
-            'Raúl Sanchez',
-            'Jose Antonio Mateos Alvarado'
+            "Alberto Villar Sanchez",
+            "Jordi Perales gavilan",
+            "Enzo Torres",
+            "Jaume Parera",
+            "Laia Mingote",
+            "Luis Perez",
+            "Cristina Campillejo Vicente",
+            "Tania Santos",
+            "Jean Carlos de los Dolores Quimís",
+            "Raquel Tarres",
+            "Silvia Rodriguez",
+            "David García Piñeiro",
+            "Luna Bouso",
+            "Lorena Prieto coll",
+            "Pol Moreno",
+            "Isaac Martos Sais",
+            "Angel Aguilera",
+            "Angel Arana",
+            "Ian Silva",
+            "Yessica Paola Zabala",
+            "Sergi Marsu",
+            "Josan Mora Castro",
+            "Nico carrillo gilbert",
+            "Raúl Jodar Pérez",
+            "Yessica Barrero",
+            "Ivan López cano",
+            "Lucia Pozas navarro",
+            "Daniel Canalejo Sánchez",
+            "Noelia Velasco",
+            "Mireia Gutierrez",
+            "Melani Adán zabala",
+            "Jose Navarro",
+            "Cristian Martínez",
+            "Miguel Angel Raya Fenandez",
+            "Kilian Morato del Olmo",
+            "Jonathan Torres García",
+            "Eddy S.P",
+            "Marina Muñoz",
+            "Adrià Crosas",
+            "Verónica Medina",
+            "Alejandro Sansaloni puerto",
+            "Anabel Blázquez",
+            "Laura Urbaneja Pereira",
+            "Natalia Pérez",
+            "Elsa Salmoral",
+            "Judit Matas Anguita",
+            "Raul Moreno Merino",
+            "Ignasi Larios",
+            "Nicolle Rosales",
+            "Hector Fontecha",
+            "Alfonso Gomez Torres",
+            "Merche Lara",
+            "Naim Klauco",
+            "Elena Palomares",
+            "Paula Blanco",
+            "Enric Mariscal",
+            "Melody Rollon",
+            "David Moreno Ortega",
+            "Xenia Simón",
+            "Montse Font",
+            "Sonia Bosse Gonzalez",
+            "Javier Asenjo",
+            "Varazou Keita",
+            "Jorge Cayuela",
+            "Ramón Pastelero Corbacho",
+            "Chema Aguilera",
+            "Miquel Torrent Roca",
+            "Patrick Crescini",
+            "Paco Quiros",
+            "Raúl Sanchez",
+            "Jose Antonio Mateos Alvarado"
         ];
 
         /**
-         * Estado principal de la aplicación en memoria.
+         * Estado principal de la aplicación.
          */
         let state = {
             eventName: 'Cena de Grupo',
@@ -542,9 +583,23 @@
             attendees: [...DEFAULT_ATTENDEES]
         };
 
-        /**
-         * Variables auxiliares de interfaz (búsqueda, filtros y confirmación pendiente).
-         */
+        // Cargar copia local inicial si existe mientras conecta Firebase
+        try {
+            const rawBackup = localStorage.getItem(STORAGE_BACKUP_KEY);
+            if (rawBackup) {
+                const parsed = JSON.parse(rawBackup);
+                if (parsed && typeof parsed === 'object') {
+                    state.eventName = parsed.eventName || 'Cena de Grupo';
+                    state.tables = Array.isArray(parsed.tables) ? parsed.tables : [];
+                    state.attendees = Array.isArray(parsed.attendees) && parsed.attendees.length > 0
+                        ? parsed.attendees
+                        : [...DEFAULT_ATTENDEES];
+                }
+            }
+        } catch (e) {
+            // Ignorar error de lectura local
+        }
+
         let searchQuery = '';
         let attendeeSearchQuery = '';
         let attendeeFilter = 'all'; // 'all' | 'pending' | 'assigned'
@@ -555,26 +610,26 @@
         // =========================================================
 
         /**
-         * Genera un identificador único ligero compatible con todos los navegadores móviles.
+         * Genera un identificador único ligero.
          */
         function generateId(prefix = 'id') {
-            return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+            return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
         }
 
         /**
-         * Normaliza texto eliminando tildes y pasando a minúsculas para búsquedas y comparaciones exactas.
+         * Normaliza texto (minúsculas, sin tildes, espacios colapsados) para búsquedas y coincidencias.
          */
         function normalizeText(str) {
             return String(str || '')
                 .normalize('NFD')
                 .replace(/[\u0300-\u036f]/g, '')
                 .toLowerCase()
-                .replace(/\s+/g, ' ')
-                .trim();
+                .trim()
+                .replace(/\s+/g, ' ');
         }
 
         /**
-         * Escapa caracteres HTML peligrosos antes de inyectar texto en plantillas DOM.
+         * Escapa caracteres HTML peligrosos para evitar inyección en innerHTML.
          */
         function escapeHtml(str) {
             return String(str || '')
@@ -586,30 +641,26 @@
         }
 
         /**
-         * Muestra una notificación flotante temporal en la parte superior.
+         * Muestra una notificación flotante no intrusiva (reemplaza a alert()).
          */
         function showToast(message, type = 'success') {
             const container = document.getElementById('toastContainer');
             if (!container) return;
 
-            const colors = {
-                success: 'bg-slate-900 dark:bg-emerald-600 text-white',
-                info: 'bg-indigo-600 text-white',
-                error: 'bg-rose-600 text-white'
-            };
-
             const toast = document.createElement('div');
-            toast.className = `${colors[type] || colors.success} px-4 py-3 rounded-2xl shadow-xl text-xs sm:text-sm font-semibold flex items-center justify-center text-center transition-all duration-300 opacity-0 -translate-y-2`;
+            const colorClass = type === 'error'
+                ? 'bg-rose-600 text-white'
+                : type === 'info'
+                    ? 'bg-slate-800 dark:bg-slate-700 text-white'
+                    : 'bg-emerald-600 text-white';
+
+            toast.className = `${colorClass} px-4 py-3 rounded-2xl shadow-xl text-xs sm:text-sm font-semibold text-center transition-all duration-200 transform translate-y-0 opacity-100`;
             toast.textContent = message;
             container.appendChild(toast);
 
-            requestAnimationFrame(() => {
-                toast.classList.remove('opacity-0', '-translate-y-2');
-            });
-
             setTimeout(() => {
                 toast.classList.add('opacity-0', '-translate-y-2');
-                setTimeout(() => toast.remove(), 300);
+                setTimeout(() => toast.remove(), 220);
             }, 2600);
         }
 
@@ -617,81 +668,72 @@
          * Abre un modal por su ID.
          */
         function openModal(modalId) {
-            const modal = document.getElementById(modalId);
-            if (modal) modal.classList.remove('hidden');
+            const el = document.getElementById(modalId);
+            if (el) el.classList.remove('hidden');
         }
 
         /**
          * Cierra un modal por su ID.
          */
         function closeModal(modalId) {
-            const modal = document.getElementById(modalId);
-            if (modal) modal.classList.add('hidden');
-        }
-
-        /**
-         * Abre el modal de confirmación personalizado (sustituye a confirm()).
-         */
-        function openConfirmModal(title, message, onConfirm, acceptText = 'Sí, borrar') {
-            document.getElementById('confirmTitle').textContent = title;
-            document.getElementById('confirmMessage').textContent = message;
-            document.getElementById('btnAcceptConfirm').textContent = acceptText;
-            pendingConfirmAction = onConfirm;
-            openModal('confirmModal');
+            const el = document.getElementById(modalId);
+            if (el) el.classList.add('hidden');
         }
 
         // =========================================================
-        // MODO CLARO / OSCURO
+        // TEMA CLARO / OSCURO Y ESTADO DE SINCRONIZACIÓN
         // =========================================================
 
         /**
-         * Actualiza la visibilidad de los iconos de sol y luna según el tema actual.
+         * Actualiza los iconos de sol/luna según el tema activo.
          */
         function updateThemeIcons() {
             const isDark = document.documentElement.classList.contains('dark');
-            const sun = document.getElementById('iconSun');
-            const moon = document.getElementById('iconMoon');
-            if (!sun || !moon) return;
-
-            if (isDark) {
-                sun.classList.remove('hidden');
-                moon.classList.add('hidden');
-            } else {
-                sun.classList.add('hidden');
-                moon.classList.remove('hidden');
+            const iconSun = document.getElementById('iconSun');
+            const iconMoon = document.getElementById('iconMoon');
+            if (iconSun && iconMoon) {
+                iconSun.classList.toggle('hidden', !isDark);
+                iconMoon.classList.toggle('hidden', isDark);
             }
         }
 
         /**
-         * Alterna entre modo claro y modo oscuro y persiste la preferencia en localStorage.
+         * Alterna entre modo claro y modo oscuro y guarda la preferencia en el navegador.
          */
         function toggleTheme() {
             const isDark = document.documentElement.classList.toggle('dark');
             try {
-                localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
-            } catch (error) {
-                console.error('No se pudo guardar el tema:', error);
+                localStorage.setItem(STORAGE_THEME_KEY, isDark ? 'dark' : 'light');
+            } catch (e) {
+                // Ignorar si el almacenamiento está restringido
             }
             updateThemeIcons();
         }
 
-        // =========================================================
-        // CONTROL DE ACCESO CON CONTRASEÑA (PERSISTENTE)
-        // =========================================================
-
         /**
-         * Comprueba si este navegador ya tiene el acceso validado en localStorage.
+         * Actualiza el indicador visual de sincronización en tiempo real con Firebase.
          */
-        function isAuthenticated() {
-            try {
-                return localStorage.getItem(AUTH_KEY) === 'granted';
-            } catch (error) {
-                return false;
+        function setSyncStatus(status, label) {
+            const dot = document.getElementById('syncStatusDot');
+            const text = document.getElementById('syncStatusText');
+            if (!dot || !text) return;
+
+            text.textContent = label;
+            if (status === 'synced') {
+                dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            } else if (status === 'error') {
+                dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
             }
         }
 
+        // =========================================================
+        // CONTROL DE ACCESO CON CONTRASEÑA (REGISTRADO EN NAVEGADOR)
+        // =========================================================
+
         /**
-         * Muestra la app o la pantalla de bloqueo según el estado de autenticación.
+         * Muestra la app o la pantalla de bloqueo según el estado de acceso.
          */
         function applyAuthUI(unlocked) {
             const lockScreen = document.getElementById('authLockScreen');
@@ -714,7 +756,7 @@
         }
 
         /**
-         * Valida la contraseña introducida y registra el acceso en el navegador.
+         * Valida la contraseña introducida, la registra en el navegador y desbloquea la interfaz.
          */
         function handleAuthSubmit(event) {
             event.preventDefault();
@@ -723,15 +765,16 @@
             const entered = passInput.value.trim();
 
             if (entered === APP_PASSWORD) {
+                isUnlocked = true;
                 try {
-                    localStorage.setItem(AUTH_KEY, 'granted');
-                } catch (error) {
-                    console.error('No se pudo guardar la sesión en localStorage:', error);
+                    localStorage.setItem(STORAGE_UNLOCK_KEY, 'true');
+                } catch (e) {
+                    // Ignorar si localStorage no está disponible
                 }
                 errorMsg.classList.add('hidden');
                 passInput.classList.remove('border-rose-500', 'dark:border-rose-500');
                 applyAuthUI(true);
-                showToast('Acceso concedido. Guardado en este navegador.');
+                showToast('Acceso concedido y guardado en este navegador.');
             } else {
                 errorMsg.classList.remove('hidden');
                 passInput.classList.add('border-rose-500', 'dark:border-rose-500');
@@ -743,87 +786,162 @@
         /**
          * Alterna entre ocultar o mostrar el texto de la contraseña en el campo de acceso.
          */
-        function toggleAuthPasswordVisibility() {
+        function togglePasswordVisibility() {
             const passInput = document.getElementById('authPasswordInput');
-            const eyeOpen = document.getElementById('iconEyeOpen');
-            const eyeClosed = document.getElementById('iconEyeClosed');
+            const iconOpen = document.getElementById('iconEyeOpen');
+            const iconClosed = document.getElementById('iconEyeClosed');
             if (!passInput) return;
 
-            const isHidden = passInput.type === 'password';
-            passInput.type = isHidden ? 'text' : 'password';
-            if (isHidden) {
-                eyeOpen.classList.add('hidden');
-                eyeClosed.classList.remove('hidden');
-            } else {
-                eyeOpen.classList.remove('hidden');
-                eyeClosed.classList.add('hidden');
+            const isPassword = passInput.type === 'password';
+            passInput.type = isPassword ? 'text' : 'password';
+            if (iconOpen && iconClosed) {
+                iconOpen.classList.toggle('hidden', isPassword);
+                iconClosed.classList.toggle('hidden', !isPassword);
             }
         }
 
         // =========================================================
-        // PERSISTENCIA EN LOCALSTORAGE Y ESTADO DE APUNTADOS
+        // SINCRONIZACIÓN EN TIEMPO REAL CON FIREBASE FIRESTORE
         // =========================================================
 
         /**
-         * Carga el estado desde localStorage o inicializa con una primera mesa lista y los 71 apuntados.
+         * Autentica primero con Firebase y suscribe los cambios en tiempo real de Firestore.
          */
-        function loadState() {
+        async function initFirebaseSync() {
+            setSyncStatus('connecting', 'Conectando nube...');
+
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user;
+                if (user) {
+                    subscribeToRealtimeState();
+                }
+            });
+
             try {
-                const raw = localStorage.getItem(STORAGE_KEY);
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    state.eventName = parsed.eventName || 'Cena de Grupo';
-                    state.tables = Array.isArray(parsed.tables) ? parsed.tables : [];
-                    state.attendees = Array.isArray(parsed.attendees) && parsed.attendees.length > 0
-                        ? parsed.attendees
-                        : [...DEFAULT_ATTENDEES];
-                    return;
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
                 }
             } catch (error) {
-                console.error('Error al cargar datos guardados:', error);
-            }
-
-            // Estado inicial por defecto si no hay datos previos
-            state = {
-                eventName: 'Cena de Grupo',
-                tables: [
-                    {
+                console.error('Error al autenticar en Firebase:', error);
+                setSyncStatus('error', 'Modo local (revisa Auth)');
+                if (state.tables.length === 0) {
+                    state.tables = [{
                         id: generateId('mesa'),
                         name: 'Mesa 1',
                         collapsed: false,
                         guests: []
-                    }
-                ],
-                attendees: [...DEFAULT_ATTENDEES]
-            };
-            saveState();
-        }
-
-        /**
-         * Guarda el estado actual en localStorage.
-         */
-        function saveState() {
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-            } catch (error) {
-                console.error('Error al guardar en localStorage:', error);
-                showToast('No se pudo guardar automáticamente en el dispositivo.', 'error');
+                    }];
+                    render();
+                }
             }
         }
 
         /**
+         * Escucha cambios en tiempo real desde Firestore para actualizar al instante todos los teléfonos.
+         */
+        function subscribeToRealtimeState() {
+            if (!currentUser) return;
+            if (typeof unsubscribeSnapshot === 'function') {
+                unsubscribeSnapshot();
+            }
+
+            unsubscribeSnapshot = onSnapshot(
+                stateDocRef,
+                async (snapshot) => {
+                    if (!snapshot.exists()) {
+                        if (state.tables.length === 0) {
+                            state = {
+                                eventName: state.eventName || 'Cena de Grupo',
+                                tables: [
+                                    {
+                                        id: generateId('mesa'),
+                                        name: 'Mesa 1',
+                                        collapsed: false,
+                                        guests: []
+                                    }
+                                ],
+                                attendees: state.attendees.length > 0 ? state.attendees : [...DEFAULT_ATTENDEES]
+                            };
+                        }
+                        await saveState();
+                        render();
+                        setSyncStatus('synced', 'Sincronizado en vivo');
+                        return;
+                    }
+
+                    const data = snapshot.data() || {};
+                    state.eventName = data.eventName || 'Cena de Grupo';
+                    state.tables = Array.isArray(data.tables) ? data.tables : [];
+                    state.attendees = Array.isArray(data.attendees) && data.attendees.length > 0
+                        ? data.attendees
+                        : [...DEFAULT_ATTENDEES];
+
+                    saveLocalBackup();
+                    render();
+                    setSyncStatus('synced', 'Sincronizado en vivo');
+                },
+                (error) => {
+                    console.error('Error en tiempo real de Firestore:', error);
+                    setSyncStatus('error', 'Sin permisos Firestore');
+                    showToast('Error al leer Firestore. Revisa las reglas de la base de datos.', 'error');
+                }
+            );
+        }
+
+        /**
+         * Guarda respaldo en localStorage del teléfono.
+         */
+        function saveLocalBackup() {
+            try {
+                localStorage.setItem(STORAGE_BACKUP_KEY, JSON.stringify(state));
+            } catch (e) {
+                // Ignorar si localStorage está lleno o restringido
+            }
+        }
+
+        /**
+         * Guarda el estado actual en localStorage y en Cloud Firestore.
+         */
+        async function saveState() {
+            saveLocalBackup();
+            render();
+
+            if (!currentUser) return;
+            setSyncStatus('connecting', 'Guardando...');
+            try {
+                await setDoc(stateDocRef, {
+                    eventName: state.eventName,
+                    tables: state.tables,
+                    attendees: state.attendees,
+                    updatedAt: Date.now()
+                });
+                setSyncStatus('synced', 'Sincronizado en vivo');
+            } catch (error) {
+                console.error('Error al guardar en Firestore:', error);
+                setSyncStatus('error', 'Guardado local (sin nube)');
+            }
+        }
+
+        // =========================================================
+        // LÓGICA DE APUNTADOS Y ASIGNACIÓN DE MESAS
+        // =========================================================
+
+        /**
          * Construye un mapa rápido de personas ya sentadas: nombre normalizado -> información de mesa.
          */
-        function getAssignedMap() {
+        function buildSeatedMap() {
             const map = new Map();
-            state.tables.forEach((table) => {
-                (table.guests || []).forEach((guest) => {
-                    const key = normalizeText(guest.name);
-                    if (key && !map.has(key)) {
-                        map.set(key, {
-                            tableId: table.id,
-                            tableName: table.name,
-                            guestId: guest.id
+            state.tables.forEach((t) => {
+                (t.guests || []).forEach((g) => {
+                    const norm = normalizeText(g.name);
+                    if (norm && !map.has(norm)) {
+                        map.set(norm, {
+                            tableId: t.id,
+                            tableName: t.name,
+                            guestId: g.id,
+                            guestName: g.name
                         });
                     }
                 });
@@ -831,147 +949,159 @@
             return map;
         }
 
+        /**
+         * Calcula cuántos apuntados de la lista maestra ya tienen mesa asignada.
+         */
+        function getAssignedAttendeesStats() {
+            const seatedMap = buildSeatedMap();
+            let assignedCount = 0;
+            state.attendees.forEach((name) => {
+                if (seatedMap.has(normalizeText(name))) {
+                    assignedCount++;
+                }
+            });
+            return {
+                assignedCount,
+                totalCount: state.attendees.length,
+                seatedMap
+            };
+        }
+
         // =========================================================
-        // RENDERIZADO DE LA INTERFAZ PRINCIPAL
+        // RENDERIZADO DE LA INTERFAZ PRINCIPAL (MESAS Y PARTICIPANTES)
         // =========================================================
 
         /**
-         * Actualiza contadores globales, insignia de apuntados y tarjetas de mesas.
+         * Renderiza toda la interfaz principal: cabecera, contadores y tarjetas de mesas.
          */
         function render() {
-            const assignedMap = getAssignedMap();
+            const eventDisplay = document.getElementById('eventNameDisplay');
+            if (eventDisplay) eventDisplay.textContent = state.eventName;
+
             const totalTables = state.tables.length;
             const totalGuests = state.tables.reduce((acc, t) => acc + (t.guests ? t.guests.length : 0), 0);
 
-            // Actualizar cabecera
-            document.getElementById('eventNameDisplay').textContent = state.eventName;
-            document.getElementById('totalTablesCount').textContent = totalTables;
-            document.getElementById('totalGuestsCount').textContent = totalGuests;
+            document.getElementById('totalTablesCount').textContent = String(totalTables);
+            document.getElementById('totalGuestsCount').textContent = String(totalGuests);
 
-            // Calcular cuántos de la lista maestra ya tienen mesa
-            const assignedFromList = state.attendees.filter((name) => assignedMap.has(normalizeText(name))).length;
-            document.getElementById('attendeesBadgeCount').textContent = `${assignedFromList}/${state.attendees.length}`;
-
-            // Renderizar las mesas
-            renderTables();
-
-            // Si el modal de apuntados está abierto, mantenerlo sincronizado en tiempo real
-            const attendeesModal = document.getElementById('attendeesModal');
-            if (attendeesModal && !attendeesModal.classList.contains('hidden')) {
-                renderAttendeesModal();
+            const { assignedCount, totalCount } = getAssignedAttendeesStats();
+            const badge = document.getElementById('attendeesBadgeCount');
+            if (badge) {
+                badge.textContent = `${assignedCount}/${totalCount}`;
             }
-        }
 
-        /**
-         * Renderiza todas las tarjetas de mesas aplicando el filtro de búsqueda si existe.
-         */
-        function renderTables() {
             const container = document.getElementById('tablesContainer');
             const normQuery = normalizeText(searchQuery);
 
-            if (state.tables.length === 0) {
+            const filteredTables = state.tables.filter((t) => {
+                if (!normQuery) return true;
+                const tableMatch = normalizeText(t.name).includes(normQuery);
+                const guestMatch = (t.guests || []).some((g) =>
+                    normalizeText(g.name).includes(normQuery) || normalizeText(g.note).includes(normQuery)
+                );
+                return tableMatch || guestMatch;
+            });
+
+            if (filteredTables.length === 0) {
                 container.innerHTML = `
-                    <div class="bg-white dark:bg-slate-800/70 border border-dashed border-slate-300 dark:border-slate-700 rounded-3xl p-8 text-center mt-4">
-                        <div class="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-3">
-                            <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+                    <div class="bg-white dark:bg-slate-800/70 border border-dashed border-slate-300 dark:border-slate-700 rounded-3xl p-8 text-center">
+                        <div class="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-3">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                             </svg>
                         </div>
-                        <h3 class="text-base font-bold text-slate-900 dark:text-white">Todavía no hay mesas</h3>
-                        <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">Pulsa <strong>Crear Nueva Mesa</strong> abajo para empezar a organizar la cena.</p>
+                        <p class="font-bold text-slate-800 dark:text-slate-100 text-base">
+                            ${normQuery ? 'Sin resultados para tu búsqueda' : 'Aún no hay mesas creadas'}
+                        </p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            ${normQuery ? 'Prueba con otro nombre o borra el filtro.' : 'Pulsa "Crear Nueva Mesa" abajo para empezar a organizar.'}
+                        </p>
                     </div>
                 `;
                 return;
             }
 
-            let visibleTablesCount = 0;
-            const htmlParts = [];
+            container.innerHTML = filteredTables.map((t) => {
+                const guests = t.guests || [];
+                const count = guests.length;
+                const countLabel = `${count} ${count === 1 ? 'persona' : 'personas'}`;
+                const isCollapsed = Boolean(t.collapsed) && !normQuery;
 
-            state.tables.forEach((table) => {
-                const tableMatches = !normQuery || normalizeText(table.name).includes(normQuery);
-                const matchingGuests = (table.guests || []).filter((g) => {
-                    if (!normQuery) return true;
-                    return normalizeText(g.name).includes(normQuery) || normalizeText(g.note).includes(normQuery);
-                });
+                const visibleGuests = normQuery
+                    ? guests.filter((g) =>
+                        normalizeText(t.name).includes(normQuery) ||
+                        normalizeText(g.name).includes(normQuery) ||
+                        normalizeText(g.note).includes(normQuery)
+                    )
+                    : guests;
 
-                if (normQuery && !tableMatches && matchingGuests.length === 0) {
-                    return;
-                }
-
-                visibleTablesCount++;
-                const guestsToShow = (normQuery && !tableMatches) ? matchingGuests : (table.guests || []);
-                const guestCount = (table.guests || []).length;
-                const countBadgeClass = 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300';
-                const countLabel = `${guestCount} ${guestCount === 1 ? 'persona' : 'personas'}`;
-
-                const isCollapsed = Boolean(table.collapsed) && !normQuery;
-
-                const guestsHtml = guestsToShow.length === 0
-                    ? `<div class="py-5 px-4 text-center text-xs text-slate-400 dark:text-slate-500">Sin participantes aún. Pulsa <strong>+ Añadir</strong> para sentar comensales.</div>`
-                    : `<ul class="divide-y divide-slate-100 dark:divide-slate-800">
-                        ${guestsToShow.map((guest, idx) => `
-                            <li class="px-4 py-2.5 flex items-center justify-between gap-2 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition">
-                                <div class="flex items-center gap-2.5 min-w-0">
-                                    <span class="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] font-bold flex items-center justify-center shrink-0">${idx + 1}</span>
-                                    <div class="min-w-0">
-                                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">${escapeHtml(guest.name)}</p>
-                                        ${guest.note ? `<p class="text-[11px] font-medium text-amber-600 dark:text-amber-400 truncate">${escapeHtml(guest.note)}</p>` : ''}
-                                    </div>
+                const guestsHtml = visibleGuests.length > 0
+                    ? visibleGuests.map((g, index) => `
+                        <li class="flex items-center justify-between gap-2 py-2.5 px-3 rounded-2xl bg-slate-50/90 dark:bg-slate-800/80 hover:bg-slate-100/90 dark:hover:bg-slate-800 transition">
+                            <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                                <span class="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center justify-center shrink-0">
+                                    ${index + 1}
+                                </span>
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">${escapeHtml(g.name)}</p>
+                                    ${g.note ? `<p class="text-[11px] font-medium text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/70 inline-block px-2 py-0.5 rounded-lg mt-0.5 truncate max-w-full">${escapeHtml(g.note)}</p>` : ''}
                                 </div>
-                                <div class="flex items-center gap-1 shrink-0">
-                                    ${state.tables.length > 1 ? `
-                                        <button type="button" data-action="move-guest" data-table-id="${table.id}" data-guest-id="${guest.id}" title="Cambiar de mesa" class="p-2 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
-                                            </svg>
-                                        </button>
-                                    ` : ''}
-                                    <button type="button" data-action="edit-guest" data-table-id="${table.id}" data-guest-id="${guest.id}" title="Editar participante" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
-                                        </svg>
-                                    </button>
-                                    <button type="button" data-action="delete-guest" data-table-id="${table.id}" data-guest-id="${guest.id}" title="Borrar participante" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </li>
-                        `).join('')}
-                    </ul>`;
+                            </div>
 
-                htmlParts.push(`
+                            <div class="flex items-center gap-1 shrink-0">
+                                <!-- Mover de mesa -->
+                                <button type="button" data-action="move-guest" data-table-id="${t.id}" data-guest-id="${g.id}" title="Cambiar de mesa" class="p-2 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 transition">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                                    </svg>
+                                </button>
+                                <!-- Editar participante -->
+                                <button type="button" data-action="edit-guest" data-table-id="${t.id}" data-guest-id="${g.id}" title="Editar participante" class="p-2 rounded-xl text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-white dark:hover:bg-slate-700 transition">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                                    </svg>
+                                </button>
+                                <!-- Borrar participante con confirmación -->
+                                <button type="button" data-action="delete-guest" data-table-id="${t.id}" data-guest-id="${g.id}" title="Borrar participante" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-white dark:hover:bg-slate-700 transition">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </li>
+                    `).join('')
+                    : `<p class="text-xs text-center text-slate-400 dark:text-slate-500 py-4">Aún no hay participantes en esta mesa.</p>`;
+
+                return `
                     <section class="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden transition-colors duration-200">
-                        <!-- Cabecera de la mesa -->
-                        <div class="px-4 py-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                            <button type="button" data-action="toggle-table" data-table-id="${table.id}" class="flex items-center gap-2.5 min-w-0 text-left flex-1">
-                                <svg class="w-4 h-4 text-slate-400 shrink-0 transition-transform ${isCollapsed ? '-rotate-90' : ''}" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                                <div class="min-w-0">
-                                    <h3 class="text-base font-bold text-slate-900 dark:text-white truncate">${escapeHtml(table.name)}</h3>
-                                    <div class="flex items-center gap-1.5 mt-0.5">
-                                        <span class="inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded-full ${countBadgeClass}">
-                                            ${countLabel}
-                                        </span>
-                                    </div>
+                        <!-- Cabecera de la tarjeta de mesa -->
+                        <div class="p-4 flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80">
+                            <button type="button" data-action="toggle-collapse" data-table-id="${t.id}" class="flex items-center gap-2.5 min-w-0 flex-1 text-left">
+                                <span class="w-7 h-7 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0 transition-transform ${isCollapsed ? '-rotate-90' : ''}">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>
+                                    </svg>
+                                </span>
+                                <div class="min-w-0 flex-1">
+                                    <h3 class="font-bold text-slate-900 dark:text-white text-base truncate">${escapeHtml(t.name)}</h3>
+                                    <span class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                        </svg>
+                                        Total: ${countLabel}
+                                    </span>
                                 </div>
                             </button>
 
                             <div class="flex items-center gap-1 shrink-0">
-                                <button type="button" data-action="add-guest" data-table-id="${table.id}" class="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
-                                    </svg>
-                                    <span>Añadir</span>
-                                </button>
-                                <button type="button" data-action="edit-table" data-table-id="${table.id}" title="Editar mesa" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700 transition">
+                                <!-- Editar nombre mesa -->
+                                <button type="button" data-action="edit-table" data-table-id="${t.id}" title="Editar nombre de mesa" class="p-2 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
                                     </svg>
                                 </button>
-                                <button type="button" data-action="delete-table" data-table-id="${table.id}" title="Borrar mesa" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition">
+                                <!-- Borrar mesa con confirmación -->
+                                <button type="button" data-action="delete-table" data-table-id="${t.id}" title="Eliminar mesa" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                     </svg>
@@ -979,29 +1109,32 @@
                             </div>
                         </div>
 
-                        <!-- Lista de participantes de la mesa -->
-                        <div class="${isCollapsed ? 'hidden' : ''}">
-                            ${guestsHtml}
+                        <!-- Cuerpo de la mesa (lista de participantes + botón añadir) -->
+                        <div class="${isCollapsed ? 'hidden' : 'p-4 pt-3 space-y-3'}">
+                            <ul class="space-y-1.5">
+                                ${guestsHtml}
+                            </ul>
+
+                            <button type="button" data-action="add-guest" data-table-id="${t.id}" class="w-full py-2.5 px-4 rounded-2xl bg-indigo-50/90 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 active:scale-[0.99] text-indigo-700 dark:text-indigo-300 font-semibold text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-indigo-200/70 dark:border-indigo-800/70 transition">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                                </svg>
+                                <span>Añadir participante</span>
+                            </button>
                         </div>
                     </section>
-                `);
-            });
-
-            if (visibleTablesCount === 0) {
-                container.innerHTML = `
-                    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-7 text-center">
-                        <p class="text-sm font-bold text-slate-800 dark:text-slate-100">Sin resultados para "${escapeHtml(searchQuery)}"</p>
-                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Prueba con otro nombre o borra el buscador.</p>
-                    </div>
                 `;
-                return;
-            }
+            }).join('');
 
-            container.innerHTML = htmlParts.join('');
+            // Si el modal de apuntados está abierto, actualizarlo también en vivo
+            const attendeesModal = document.getElementById('attendeesModal');
+            if (attendeesModal && !attendeesModal.classList.contains('hidden')) {
+                renderAttendeesModal();
+            }
         }
 
         // =========================================================
-        // GESTIÓN DE MESAS
+        // ACCIONES SOBRE MESAS Y PARTICIPANTES
         // =========================================================
 
         function openCreateTableModal() {
@@ -1013,32 +1146,31 @@
                 const input = document.getElementById('tableNameInput');
                 input.focus();
                 input.select();
-            }, 60);
+            }, 80);
         }
 
         function openEditTableModal(tableId) {
-            const table = state.tables.find((t) => t.id === tableId);
-            if (!table) return;
+            const targetTable = state.tables.find((t) => t.id === tableId);
+            if (!targetTable) return;
 
             document.getElementById('tableModalTitle').textContent = 'Editar Mesa';
-            document.getElementById('tableIdInput').value = table.id;
-            document.getElementById('tableNameInput').value = table.name;
+            document.getElementById('tableIdInput').value = targetTable.id;
+            document.getElementById('tableNameInput').value = targetTable.name;
             openModal('tableModal');
-            setTimeout(() => document.getElementById('tableNameInput').focus(), 60);
+            setTimeout(() => document.getElementById('tableNameInput').focus(), 80);
         }
 
-        function handleTableFormSubmit(event) {
+        async function handleTableFormSubmit(event) {
             event.preventDefault();
-            const id = document.getElementById('tableIdInput').value;
+            const tableId = document.getElementById('tableIdInput').value.trim();
             const name = document.getElementById('tableNameInput').value.trim();
-
             if (!name) return;
 
-            if (id) {
-                const table = state.tables.find((t) => t.id === id);
-                if (table) {
-                    table.name = name;
-                    showToast(`Mesa "${name}" actualizada.`);
+            if (tableId) {
+                const targetTable = state.tables.find((t) => t.id === tableId);
+                if (targetTable) {
+                    targetTable.name = name;
+                    showToast('Mesa actualizada.');
                 }
             } else {
                 state.tables.push({
@@ -1047,141 +1179,122 @@
                     collapsed: false,
                     guests: []
                 });
-                showToast(`Mesa "${name}" creada.`);
+                showToast(`"${name}" creada.`);
             }
 
-            saveState();
-            render();
             closeModal('tableModal');
+            await saveState();
         }
 
-        function toggleTableCollapse(tableId) {
-            const table = state.tables.find((t) => t.id === tableId);
-            if (!table) return;
-            table.collapsed = !table.collapsed;
-            saveState();
-            renderTables();
-        }
+        function requestDeleteTable(tableId) {
+            const targetTable = state.tables.find((t) => t.id === tableId);
+            if (!targetTable) return;
 
-        function confirmDeleteTable(tableId) {
-            const table = state.tables.find((t) => t.id === tableId);
-            if (!table) return;
-            const count = (table.guests || []).length;
-            const msg = count > 0
-                ? `Se eliminará "${table.name}" junto con sus ${count} ${count === 1 ? 'participante' : 'participantes'}. Esta acción no se puede deshacer.`
-                : `¿Seguro que quieres eliminar "${table.name}"?`;
+            const count = (targetTable.guests || []).length;
+            document.getElementById('confirmTitle').textContent = '¿Eliminar mesa?';
+            document.getElementById('confirmMessage').textContent = count > 0
+                ? `Vas a borrar "${targetTable.name}" junto con sus ${count} ${count === 1 ? 'participante' : 'participantes'}.`
+                : `¿Seguro que quieres eliminar "${targetTable.name}"?`;
 
-            openConfirmModal('Eliminar mesa', msg, () => {
+            pendingConfirmAction = async () => {
                 state.tables = state.tables.filter((t) => t.id !== tableId);
-                saveState();
-                render();
-                showToast(`Mesa "${table.name}" eliminada.`, 'info');
-            });
+                await saveState();
+                showToast('Mesa eliminada.', 'info');
+            };
+            openModal('confirmModal');
         }
-
-        // =========================================================
-        // GESTIÓN DE PARTICIPANTES Y AUTOCOMPLETADO POR INICIAL
-        // =========================================================
 
         function openAddGuestModal(tableId) {
-            const table = state.tables.find((t) => t.id === tableId);
-            if (!table) return;
+            const targetTable = state.tables.find((t) => t.id === tableId);
+            if (!targetTable) return;
 
             document.getElementById('guestModalTitle').textContent = 'Añadir Participante';
-            document.getElementById('guestModalSubtitle').textContent = `En: ${table.name}`;
-            document.getElementById('guestTableIdInput').value = table.id;
+            document.getElementById('guestModalSubtitle').textContent = `Mesa: ${targetTable.name}`;
+            document.getElementById('guestTableIdInput').value = targetTable.id;
             document.getElementById('guestIdInput').value = '';
             document.getElementById('guestNameInput').value = '';
             document.getElementById('guestNoteInput').value = '';
-            hideGuestSuggestions();
+            document.getElementById('guestSuggestionsContainer').classList.add('hidden');
+
             openModal('guestModal');
-            setTimeout(() => document.getElementById('guestNameInput').focus(), 60);
+            setTimeout(() => document.getElementById('guestNameInput').focus(), 80);
         }
 
         function openEditGuestModal(tableId, guestId) {
-            const table = state.tables.find((t) => t.id === tableId);
-            if (!table) return;
-            const guest = (table.guests || []).find((g) => g.id === guestId);
-            if (!guest) return;
+            const targetTable = state.tables.find((t) => t.id === tableId);
+            if (!targetTable) return;
+            const targetGuest = (targetTable.guests || []).find((g) => g.id === guestId);
+            if (!targetGuest) return;
 
             document.getElementById('guestModalTitle').textContent = 'Editar Participante';
-            document.getElementById('guestModalSubtitle').textContent = `En: ${table.name}`;
-            document.getElementById('guestTableIdInput').value = table.id;
-            document.getElementById('guestIdInput').value = guest.id;
-            document.getElementById('guestNameInput').value = guest.name;
-            document.getElementById('guestNoteInput').value = guest.note || '';
-            hideGuestSuggestions();
-            openModal('guestModal');
-            setTimeout(() => document.getElementById('guestNameInput').focus(), 60);
-        }
+            document.getElementById('guestModalSubtitle').textContent = `Mesa: ${targetTable.name}`;
+            document.getElementById('guestTableIdInput').value = targetTable.id;
+            document.getElementById('guestIdInput').value = targetGuest.id;
+            document.getElementById('guestNameInput').value = targetGuest.name;
+            document.getElementById('guestNoteInput').value = targetGuest.note || '';
+            document.getElementById('guestSuggestionsContainer').classList.add('hidden');
 
-        function hideGuestSuggestions() {
-            const box = document.getElementById('guestSuggestionsContainer');
-            if (box) box.classList.add('hidden');
+            openModal('guestModal');
+            setTimeout(() => document.getElementById('guestNameInput').focus(), 80);
         }
 
         /**
-         * Muestra sugerencias en vivo desde la lista de apuntados al escribir.
-         * Si se escribe una sola letra (ej. "A"), filtra todos los nombres que empiezan por esa letra.
-         * Si se escriben varias letras, prioriza los que empiezan por ese texto y luego los que lo contienen.
+         * Actualiza las sugerencias de autocompletado cuando el usuario escribe letras en el modal de participante.
          */
-        function renderGuestSuggestions(rawValue) {
+        function updateGuestAutocompleteSuggestions() {
+            const input = document.getElementById('guestNameInput');
             const container = document.getElementById('guestSuggestionsContainer');
-            const list = document.getElementById('guestSuggestionsList');
-            const header = document.getElementById('guestSuggestionsHeader');
-            const norm = normalizeText(rawValue);
+            const listEl = document.getElementById('guestSuggestionsList');
+            const headerEl = document.getElementById('guestSuggestionsHeader');
+            if (!input || !container || !listEl) return;
 
-            if (!norm) {
+            const rawVal = input.value.trim();
+            const normVal = normalizeText(rawVal);
+
+            if (!normVal) {
                 container.classList.add('hidden');
                 return;
             }
 
-            const assignedMap = getAssignedMap();
-            let matches = [];
+            // Priorizar nombres que empiezan por lo escrito (ej. "A" -> todos los que empiezan por A),
+            // y si escribe más letras también incluir coincidencias en apellidos.
+            const startsWithMatches = [];
+            const containsMatches = [];
 
-            if (norm.length === 1) {
-                // Coincidencias exactas por inicial del nombre
-                matches = state.attendees.filter((name) => normalizeText(name).startsWith(norm));
-                header.textContent = `Empiezan por "${rawValue.trim().toUpperCase()}" (${matches.length})`;
-            } else {
-                const starts = state.attendees.filter((name) => normalizeText(name).startsWith(norm));
-                const includes = state.attendees.filter((name) => {
-                    const n = normalizeText(name);
-                    return !n.startsWith(norm) && n.includes(norm);
-                });
-                matches = [...starts, ...includes];
-                header.textContent = `Coincidencias en la lista (${matches.length})`;
-            }
-
-            // Ordenar poniendo primero los que aún faltan por sentar
-            matches.sort((a, b) => {
-                const aAssigned = assignedMap.has(normalizeText(a)) ? 1 : 0;
-                const bAssigned = assignedMap.has(normalizeText(b)) ? 1 : 0;
-                if (aAssigned !== bAssigned) return aAssigned - bAssigned;
-                return a.localeCompare(b, 'es');
+            state.attendees.forEach((name) => {
+                const normName = normalizeText(name);
+                if (normName.startsWith(normVal)) {
+                    startsWithMatches.push(name);
+                } else if (normVal.length >= 2 && normName.includes(normVal)) {
+                    containsMatches.push(name);
+                }
             });
 
-            if (matches.length === 0) {
+            const combined = [...startsWithMatches, ...containsMatches];
+
+            if (combined.length === 0) {
                 container.classList.add('hidden');
                 return;
             }
 
-            list.innerHTML = matches.map((name) => {
-                const assigned = assignedMap.get(normalizeText(name));
+            const seatedMap = buildSeatedMap();
+            headerEl.textContent = normVal.length === 1
+                ? `Empiezan por "${rawVal.toUpperCase()}" (${combined.length})`
+                : `Sugerencias (${combined.length})`;
+
+            listEl.innerHTML = combined.map((name) => {
+                const seatedInfo = seatedMap.get(normalizeText(name));
                 return `
                     <li>
-                        <button type="button" data-pick-suggestion="${escapeHtml(name)}" class="w-full px-3.5 py-2.5 text-left flex items-center justify-between gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition">
-                            <span class="text-sm font-medium ${assigned ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'} truncate">${escapeHtml(name)}</span>
-                            ${assigned ? `
-                                <span class="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full shrink-0">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
-                                    </svg>
-                                    <span class="max-w-[90px] truncate">${escapeHtml(assigned.tableName)}</span>
-                                </span>
-                            ` : `
-                                <span class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">Elegir</span>
-                            `}
+                        <button type="button" data-select-suggestion="${escapeHtml(name)}" class="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-indigo-50 dark:hover:bg-slate-700/80 transition">
+                            <span class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">${escapeHtml(name)}</span>
+                            ${seatedInfo
+                                ? `<span class="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full shrink-0">
+                                     <svg class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>
+                                     ${escapeHtml(seatedInfo.tableName)}
+                                   </span>`
+                                : `<span class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">Elegir</span>`
+                            }
                         </button>
                     </li>
                 `;
@@ -1190,97 +1303,78 @@
             container.classList.remove('hidden');
         }
 
-        function handleGuestFormSubmit(event) {
+        async function handleGuestFormSubmit(event) {
             event.preventDefault();
-            const tableId = document.getElementById('guestTableIdInput').value;
-            const guestId = document.getElementById('guestIdInput').value;
+            const tableId = document.getElementById('guestTableIdInput').value.trim();
+            const guestId = document.getElementById('guestIdInput').value.trim();
             const name = document.getElementById('guestNameInput').value.trim();
             const note = document.getElementById('guestNoteInput').value.trim();
 
-            if (!name) return;
+            if (!tableId || !name) return;
 
-            const table = state.tables.find((t) => t.id === tableId);
-            if (!table) return;
+            const targetTable = state.tables.find((t) => t.id === tableId);
+            if (!targetTable) return;
+            if (!Array.isArray(targetTable.guests)) targetTable.guests = [];
 
             if (guestId) {
-                const guest = (table.guests || []).find((g) => g.id === guestId);
-                if (guest) {
-                    guest.name = name;
-                    guest.note = note;
-                    showToast(`Participante "${name}" actualizado.`);
+                const targetGuest = targetTable.guests.find((g) => g.id === guestId);
+                if (targetGuest) {
+                    targetGuest.name = name;
+                    targetGuest.note = note;
+                    showToast('Participante actualizado.');
                 }
-                saveState();
-                render();
-                closeModal('guestModal');
-                return;
-            }
-
-            // Comprobar si la persona ya estaba anotada en alguna mesa para avisar
-            const assignedMap = getAssignedMap();
-            const existing = assignedMap.get(normalizeText(name));
-
-            if (existing) {
-                showToast(`Aviso: "${name}" ya estaba en ${existing.tableName}, añadido igualmente.`, 'info');
             } else {
-                showToast(`${name} añadido a ${table.name}.`);
+                targetTable.guests.push({
+                    id: generateId('inv'),
+                    name,
+                    note
+                });
+                targetTable.collapsed = false;
+                showToast(`${name} añadido a ${targetTable.name}.`);
             }
 
-            table.guests.push({
-                id: generateId('inv'),
-                name,
-                note
-            });
-            table.collapsed = false;
-
-            saveState();
-            render();
-
-            // Limpiar campos para poder seguir añadiendo personas rápido a la misma mesa
-            document.getElementById('guestNameInput').value = '';
-            document.getElementById('guestNoteInput').value = '';
-            hideGuestSuggestions();
-            document.getElementById('guestNameInput').focus();
+            closeModal('guestModal');
+            await saveState();
         }
 
-        function confirmDeleteGuest(tableId, guestId) {
-            const table = state.tables.find((t) => t.id === tableId);
-            if (!table) return;
-            const guest = (table.guests || []).find((g) => g.id === guestId);
-            if (!guest) return;
+        function requestDeleteGuest(tableId, guestId) {
+            const targetTable = state.tables.find((t) => t.id === tableId);
+            if (!targetTable) return;
+            const targetGuest = (targetTable.guests || []).find((g) => g.id === guestId);
+            if (!targetGuest) return;
 
-            openConfirmModal(
-                'Borrar participante',
-                `¿Seguro que quieres quitar a "${guest.name}" de ${table.name}?`,
-                () => {
-                    table.guests = table.guests.filter((g) => g.id !== guestId);
-                    saveState();
-                    render();
-                    showToast(`"${guest.name}" eliminado de ${table.name}.`, 'info');
-                }
-            );
+            document.getElementById('confirmTitle').textContent = '¿Borrar participante?';
+            document.getElementById('confirmMessage').textContent = `¿Seguro que quieres quitar a "${targetGuest.name}" de ${targetTable.name}?`;
+
+            pendingConfirmAction = async () => {
+                targetTable.guests = (targetTable.guests || []).filter((g) => g.id !== guestId);
+                await saveState();
+                showToast(`${targetGuest.name} eliminado.`, 'info');
+            };
+            openModal('confirmModal');
         }
-
-        // =========================================================
-        // MOVER PARTICIPANTE / ASIGNAR DESDE LA LISTA DE APUNTADOS
-        // =========================================================
 
         function openMoveGuestModal(sourceTableId, guestId) {
             const sourceTable = state.tables.find((t) => t.id === sourceTableId);
             if (!sourceTable) return;
-            const guest = (sourceTable.guests || []).find((g) => g.id === guestId);
-            if (!guest) return;
+            const targetGuest = (sourceTable.guests || []).find((g) => g.id === guestId);
+            if (!targetGuest) return;
+
+            const otherTables = state.tables.filter((t) => t.id !== sourceTableId);
+            if (otherTables.length === 0) {
+                showToast('Crea otra mesa primero para poder mover participantes.', 'info');
+                return;
+            }
 
             document.getElementById('moveGuestTitle').textContent = 'Cambiar de Mesa';
-            document.getElementById('moveGuestSubtitle').textContent = `Mover a ${guest.name} desde ${sourceTable.name}`;
+            document.getElementById('moveGuestSubtitle').textContent = `Mover a ${targetGuest.name} (actual: ${sourceTable.name})`;
 
             const optionsEl = document.getElementById('moveTableOptions');
-            const otherTables = state.tables.filter((t) => t.id !== sourceTableId);
-
             optionsEl.innerHTML = otherTables.map((t) => {
                 const count = (t.guests || []).length;
                 const countText = `${count} ${count === 1 ? 'persona' : 'personas'}`;
                 return `
-                    <button type="button" data-confirm-move-to="${t.id}" data-source-table="${sourceTableId}" data-guest-id="${guestId}" class="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/50 flex items-center justify-between text-left transition">
+                    <button type="button" data-move-target-table="${t.id}" data-source-table="${sourceTableId}" data-guest-id="${guestId}" class="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/50 flex items-center justify-between text-left transition">
                         <span class="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">${escapeHtml(t.name)}</span>
                         <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 ml-2">${countText}</span>
                     </button>
@@ -1309,32 +1403,6 @@
                     <button type="button" data-assign-attendee-table="${t.id}" data-attendee-name="${escapeHtml(attendeeName)}" class="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-emerald-400 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/50 flex items-center justify-between text-left transition">
                         <span class="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">${escapeHtml(t.name)}</span>
                         <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 ml-2">${countText}</span>
-                    </button>
-                `;
-            }).join('');
-
-            openModal('moveGuestModal');
-        }
-
-        function openAssignAttendeeToTableModal(attendeeName) {
-            if (state.tables.length === 0) {
-                showToast('Crea primero una mesa para asignar personas.', 'info');
-                closeModal('attendeesModal');
-                openCreateTableModal();
-                return;
-            }
-
-            document.getElementById('moveGuestTitle').textContent = 'Asignar a una Mesa';
-            document.getElementById('moveGuestSubtitle').textContent = `Elige mesa para ${attendeeName}`;
-
-            const optionsEl = document.getElementById('moveTableOptions');
-            optionsEl.innerHTML = state.tables.map((t) => {
-                const count = (t.guests || []).length;
-                const capText = t.capacity ? `${count}/${t.capacity}` : `${count} pers.`;
-                return `
-                    <button type="button" data-assign-attendee-table="${t.id}" data-attendee-name="${escapeHtml(attendeeName)}" class="w-full p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-emerald-400 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/50 flex items-center justify-between text-left transition">
-                        <span class="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">${escapeHtml(t.name)}</span>
-                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 ml-2">${capText}</span>
                     </button>
                 `;
             }).join('');
@@ -1347,128 +1415,107 @@
         // =========================================================
 
         function openAttendeesModal() {
+            attendeeSearchQuery = '';
+            const searchEl = document.getElementById('attendeesSearchInput');
+            if (searchEl) searchEl.value = '';
+            document.getElementById('addAttendeeForm').classList.add('hidden');
             renderAttendeesModal();
             openModal('attendeesModal');
         }
 
         function renderAttendeesModal() {
-            const assignedMap = getAssignedMap();
-            const total = state.attendees.length;
-            const assignedCount = state.attendees.filter((name) => assignedMap.has(normalizeText(name))).length;
-            const pct = total > 0 ? Math.round((assignedCount / total) * 100) : 0;
+            const { assignedCount, totalCount, seatedMap } = getAssignedAttendeesStats();
+            const pendingCount = Math.max(0, totalCount - assignedCount);
+            const pct = totalCount > 0 ? Math.round((assignedCount / totalCount) * 100) : 0;
 
-            document.getElementById('attendeesSummaryText').textContent = `${assignedCount} de ${total} sentados en mesa (${pct}%)`;
+            document.getElementById('attendeesSummaryText').textContent =
+                `${assignedCount} de ${totalCount} en mesa · Faltan ${pendingCount} (${pct}%)`;
             document.getElementById('attendeesProgressBar').style.width = `${pct}%`;
 
-            // Estilos de botones de filtro
+            // Estilos activos en pestañas de filtro
             document.querySelectorAll('.attendee-filter-btn').forEach((btn) => {
-                const active = btn.dataset.attendeeFilter === attendeeFilter;
-                if (active) {
-                    btn.className = 'attendee-filter-btn py-1.5 rounded-xl text-xs font-bold transition bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm';
-                } else {
-                    btn.className = 'attendee-filter-btn py-1.5 rounded-xl text-xs font-bold transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200';
-                }
+                const f = btn.getAttribute('data-attendee-filter');
+                const active = f === attendeeFilter;
+                btn.className = active
+                    ? 'attendee-filter-btn py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm transition'
+                    : 'attendee-filter-btn py-1.5 rounded-xl text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition';
             });
 
-            const normSearch = normalizeText(attendeeSearchQuery);
+            const normFilter = normalizeText(attendeeSearchQuery);
             const filtered = state.attendees.filter((name) => {
-                const isAssigned = assignedMap.has(normalizeText(name));
-                if (attendeeFilter === 'pending' && isAssigned) return false;
-                if (attendeeFilter === 'assigned' && !isAssigned) return false;
-                if (!normSearch) return true;
-                if (normSearch.length === 1) {
-                    return normalizeText(name).startsWith(normSearch);
+                const normName = normalizeText(name);
+                const isSeated = seatedMap.has(normName);
+
+                if (attendeeFilter === 'assigned' && !isSeated) return false;
+                if (attendeeFilter === 'pending' && isSeated) return false;
+
+                if (!normFilter) return true;
+                if (normFilter.length === 1) {
+                    return normName.startsWith(normFilter);
                 }
-                return normalizeText(name).includes(normSearch);
+                return normName.includes(normFilter);
             });
 
             const listContainer = document.getElementById('attendeesListContainer');
-
             if (filtered.length === 0) {
                 listContainer.innerHTML = `
-                    <div class="py-10 text-center text-xs text-slate-400 dark:text-slate-500">
-                        No hay personas que coincidan con este filtro.
-                    </div>
+                    <p class="text-xs text-center text-slate-400 dark:text-slate-500 py-8">
+                        No hay apuntados que coincidan con este filtro.
+                    </p>
                 `;
                 return;
             }
 
             listContainer.innerHTML = filtered.map((name) => {
-                const assigned = assignedMap.get(normalizeText(name));
+                const seatedInfo = seatedMap.get(normalizeText(name));
                 return `
-                    <div class="flex items-center justify-between gap-2 px-3 py-2.5 rounded-2xl border ${assigned ? 'bg-emerald-50/60 dark:bg-emerald-950/25 border-emerald-200/80 dark:border-emerald-900/60' : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/70 dark:border-slate-700/70'} transition">
-                        <div class="flex items-center gap-2.5 min-w-0">
-                            ${assigned ? `
-                                <span title="Ya está en mesa" class="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
-                                    </svg>
-                                </span>
-                            ` : `
-                                <span title="Pendiente de mesa" class="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-slate-600 shrink-0"></span>
-                            `}
-                            <div class="min-w-0">
-                                <p class="text-sm font-semibold ${assigned ? 'text-emerald-950 dark:text-emerald-100' : 'text-slate-800 dark:text-slate-100'} truncate">${escapeHtml(name)}</p>
-                                ${assigned ? `<p class="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 truncate">En: ${escapeHtml(assigned.tableName)}</p>` : ''}
+                    <div class="flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-2xl border ${seatedInfo
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-900/60'
+                        : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200/70 dark:border-slate-800'} transition">
+                        <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                            ${seatedInfo
+                                ? `<span title="Ya está en mesa" class="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+                                     </svg>
+                                   </span>`
+                                : `<span title="Pendiente de asignar" class="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-slate-600 shrink-0"></span>`
+                            }
+                            <div class="min-w-0 flex-1">
+                                <p class="text-sm font-semibold ${seatedInfo ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-200'} truncate">${escapeHtml(name)}</p>
+                                ${seatedInfo
+                                    ? `<p class="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 truncate">${escapeHtml(seatedInfo.tableName)}</p>`
+                                    : `<p class="text-[11px] text-slate-400 dark:text-slate-500">Sin mesa asignada</p>`
+                                }
                             </div>
                         </div>
 
-                        <div class="shrink-0">
-                            ${assigned ? `
-                                <span class="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 px-2 py-1">Listo</span>
-                            ` : `
-                                <button type="button" data-quick-assign="${escapeHtml(name)}" class="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition">
-                                    + Mesa
-                                </button>
-                            `}
-                        </div>
+                        ${!seatedInfo
+                            ? `<button type="button" data-quick-assign-attendee="${escapeHtml(name)}" class="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold shrink-0 transition">
+                                 + Mesa
+                               </button>`
+                            : `<span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-1 shrink-0">Listo</span>`
+                        }
                     </div>
                 `;
             }).join('');
         }
 
-        function handleAddAttendeeSubmit(event) {
-            event.preventDefault();
-            const input = document.getElementById('newAttendeeNameInput');
-            const name = input.value.trim();
-            if (!name) return;
+        // =========================================================
+        // EXPORTACIÓN A PDF, EXCEL Y WHATSAPP
+        // =========================================================
 
-            const exists = state.attendees.some((a) => normalizeText(a) === normalizeText(name));
-            if (exists) {
-                showToast(`"${name}" ya está en la lista de apuntados.`, 'info');
+        function exportToPDF() {
+            if (!window.jspdf || !window.jspdf.jsPDF) {
+                showToast('No se pudo cargar la librería PDF.', 'error');
                 return;
             }
 
-            state.attendees.push(name);
-            input.value = '';
-            document.getElementById('addAttendeeForm').classList.add('hidden');
-            saveState();
-            render();
-            showToast(`"${name}" añadido a la lista de apuntados.`);
-        }
-
-        // =========================================================
-        // EXPORTACIÓN A PDF, EXCEL (.xlsx) Y WHATSAPP
-        // =========================================================
-
-        function getSafeFileName(ext) {
-            const slug = normalizeText(state.eventName || 'cena-mesas')
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-|-$/g, '') || 'cena-mesas';
-            return `${slug}.${ext}`;
-        }
-
-        function exportToPDF() {
             try {
-                if (!window.jspdf || !window.jspdf.jsPDF) {
-                    showToast('Librería PDF no disponible. Comprueba tu conexión.', 'error');
-                    return;
-                }
-
                 const { jsPDF } = window.jspdf;
-                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-                const totalGuests = state.tables.reduce((sum, t) => sum + (t.guests || []).length, 0);
-                const nowStr = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                const doc = new jsPDF();
+                const totalTables = state.tables.length;
+                const totalGuests = state.tables.reduce((acc, t) => acc + (t.guests ? t.guests.length : 0), 0);
 
                 doc.setFontSize(18);
                 doc.setTextColor(30, 41, 59);
@@ -1476,234 +1523,179 @@
 
                 doc.setFontSize(10);
                 doc.setTextColor(100, 116, 139);
-                doc.text(`Fecha: ${nowStr}   |   Mesas: ${state.tables.length}   |   Total comensales: ${totalGuests}`, 14, 25);
+                doc.text(`Total mesas: ${totalTables}   |   Total personas en mesas: ${totalGuests}`, 14, 25);
 
-                // Tabla resumen
-                const summaryRows = state.tables.map((t) => [
-                    t.name,
-                    String((t.guests || []).length)
-                ]);
+                let currentY = 33;
 
-                doc.autoTable({
-                    startY: 30,
-                    head: [['Mesa', 'Personas']],
-                    body: summaryRows.length ? summaryRows : [['Sin mesas creadas', '0']],
-                    theme: 'grid',
-                    headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
-                    styles: { fontSize: 9.5, cellPadding: 2.5 }
-                });
-
-                // Detalle por cada mesa
-                let currentY = doc.lastAutoTable.finalY + 10;
-
-                state.tables.forEach((table) => {
+                state.tables.forEach((t) => {
                     if (currentY > 260) {
                         doc.addPage();
                         currentY = 18;
                     }
 
-                    const count = (table.guests || []).length;
+                    const guests = t.guests || [];
+                    const count = guests.length;
                     doc.setFontSize(12);
                     doc.setTextColor(30, 41, 59);
-                    doc.text(`${table.name} (${count} ${count === 1 ? 'persona' : 'personas'})`, 14, currentY);
-                    doc.setTextColor(30, 41, 59);
-                    doc.text(`${table.name} (${count}${capStr} personas)`, 14, currentY);
+                    doc.text(`${t.name} (${count} ${count === 1 ? 'persona' : 'personas'})`, 14, currentY);
 
                     const guestRows = count > 0
-                        ? table.guests.map((g, idx) => [String(idx + 1), g.name, g.note || '-'])
+                        ? guests.map((g, idx) => [String(idx + 1), g.name, g.note || '-'])
                         : [['-', 'Sin participantes asignados', '-']];
 
                     doc.autoTable({
                         startY: currentY + 3,
                         head: [['#', 'Participante', 'Nota / Menú']],
                         body: guestRows,
-                        theme: 'striped',
-                        headStyles: { fillColor: [51, 65, 85], textColor: 255 },
-                        columnStyles: { 0: { cellWidth: 12 } },
-                        styles: { fontSize: 9, cellPadding: 2.2 }
+                        theme: 'grid',
+                        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontSize: 9 },
+                        bodyStyles: { fontSize: 9, textColor: [30, 41, 59] },
+                        columnStyles: {
+                            0: { cellWidth: 12 },
+                            1: { cellWidth: 95 },
+                            2: { cellWidth: 'auto' }
+                        },
+                        margin: { left: 14, right: 14 }
                     });
 
-                    currentY = doc.lastAutoTable.finalY + 9;
+                    currentY = doc.lastAutoTable.finalY + 10;
                 });
 
-                doc.save(getSafeFileName('pdf'));
-                showToast('PDF descargado correctamente.');
+                const safeFilename = (state.eventName || 'mesas_cena').toLowerCase().replace(/[^a-z0-9]+/gi, '_');
+                doc.save(`${safeFilename}.pdf`);
                 closeModal('exportModal');
-            } catch (error) {
-                console.error('Error al generar PDF:', error);
-                showToast('Error al generar el PDF.', 'error');
+                showToast('PDF descargado correctamente.');
+            } catch (err) {
+                console.error('Error al generar PDF:', err);
+                showToast('Hubo un problema al generar el PDF.', 'error');
             }
         }
 
         function exportToExcel() {
+            if (!window.XLSX) {
+                showToast('No se pudo cargar la librería Excel.', 'error');
+                return;
+            }
+
             try {
-                if (typeof XLSX === 'undefined') {
-                    showToast('Librería Excel no disponible. Comprueba tu conexión.', 'error');
-                    return;
-                }
-
                 const wb = XLSX.utils.book_new();
-                const assignedMap = getAssignedMap();
 
-                // Pestaña 1: Participantes por mesa
-                const detailRows = [];
-                state.tables.forEach((table) => {
-                    const count = (table.guests || []).length;
-                    if (count === 0) {
-                        detailRows.push({
-                            Mesa: table.name,
-                            'Total en Mesa': 0,
-                            'Nº': '',
-                            Participante: '(Vacía)',
-                            'Nota / Menú': ''
-                        });
+                // Pestaña 1: Detalle de participantes por mesa
+                const detailRows = [['Mesa', 'Nº', 'Participante', 'Nota / Menú']];
+                state.tables.forEach((t) => {
+                    const guests = t.guests || [];
+                    if (guests.length === 0) {
+                        detailRows.push([t.name, '-', '(Sin participantes)', '']);
                     } else {
-                        table.guests.forEach((guest, idx) => {
-                            detailRows.push({
-                                Mesa: table.name,
-                                'Total en Mesa': count,
-                                'Nº': idx + 1,
-                                Participante: guest.name,
-                                'Nota / Menú': guest.note || ''
-                            });
+                        guests.forEach((g, idx) => {
+                            detailRows.push([t.name, idx + 1, g.name, g.note || '']);
                         });
                     }
                 });
-
-                const wsDetail = XLSX.utils.json_to_sheet(
-                    detailRows.length ? detailRows : [{ Mesa: 'Sin datos', 'Total en Mesa': 0, 'Nº': '', Participante: '', 'Nota / Menú': '' }]
-                );
-                wsDetail['!cols'] = [{ wch: 24 }, { wch: 15 }, { wch: 6 }, { wch: 30 }, { wch: 26 }];
+                const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
                 XLSX.utils.book_append_sheet(wb, wsDetail, 'Participantes');
 
-                // Pestaña 2: Resumen de Mesas
-                const totalGuests = state.tables.reduce((sum, t) => sum + (t.guests || []).length, 0);
-                const summaryRows = state.tables.map((t) => ({
-                    Mesa: t.name,
-                    'Personas Asignadas': (t.guests || []).length
-                }));
-                summaryRows.push({
-                    Mesa: 'TOTAL GENERAL',
-                    'Personas Asignadas': totalGuests
+                // Pestaña 2: Resumen por mesa
+                const summaryRows = [['Mesa', 'Total Personas']];
+                let grandTotal = 0;
+                state.tables.forEach((t) => {
+                    const count = (t.guests || []).length;
+                    grandTotal += count;
+                    summaryRows.push([t.name, count]);
                 });
-
-                const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
-                wsSummary['!cols'] = [{ wch: 26 }, { wch: 20 }];
+                summaryRows.push(['TOTAL GENERAL', grandTotal]);
+                const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
                 XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen Mesas');
 
-                // Pestaña 3: Estado de la Lista de Apuntados
-                const attendeesRows = state.attendees.map((name) => {
-                    const assigned = assignedMap.get(normalizeText(name));
-                    return {
-                        Apuntado: name,
-                        'En Mesa': assigned ? 'Sí' : 'No',
-                        'Mesa Asignada': assigned ? assigned.tableName : ''
-                    };
+                // Pestaña 3: Estado de la lista de apuntados
+                const seatedMap = buildSeatedMap();
+                const attendeesRows = [['Apuntado', 'Estado', 'Mesa Asignada']];
+                state.attendees.forEach((name) => {
+                    const info = seatedMap.get(normalizeText(name));
+                    attendeesRows.push([name, info ? 'En mesa' : 'Pendiente', info ? info.tableName : '-']);
                 });
-                const wsAttendees = XLSX.utils.json_to_sheet(attendeesRows);
-                wsAttendees['!cols'] = [{ wch: 32 }, { wch: 10 }, { wch: 24 }];
+                const wsAttendees = XLSX.utils.aoa_to_sheet(attendeesRows);
                 XLSX.utils.book_append_sheet(wb, wsAttendees, 'Lista Apuntados');
 
-                XLSX.writeFile(wb, getSafeFileName('xlsx'));
-                showToast('Archivo Excel descargado.');
+                const safeFilename = (state.eventName || 'mesas_cena').toLowerCase().replace(/[^a-z0-9]+/gi, '_');
+                XLSX.writeFile(wb, `${safeFilename}.xlsx`);
                 closeModal('exportModal');
-            } catch (error) {
-                console.error('Error al generar Excel:', error);
-                showToast('Error al generar el archivo Excel.', 'error');
+                showToast('Excel descargado correctamente.');
+            } catch (err) {
+                console.error('Error al generar Excel:', err);
+                showToast('Hubo un problema al generar el Excel.', 'error');
             }
         }
 
-        function copyWhatsAppSummary() {
-            const totalGuests = state.tables.reduce((sum, t) => sum + (t.guests || []).length, 0);
+        function copySummaryToClipboard() {
+            const totalGuests = state.tables.reduce((acc, t) => acc + (t.guests ? t.guests.length : 0), 0);
             const lines = [
-                `*${state.eventName}*`,
-                `Mesas: ${state.tables.length} | Total personas: ${totalGuests}`,
+                `🍽️ *${state.eventName}*`,
+                `📊 ${state.tables.length} mesas · ${totalGuests} personas`,
                 ''
             ];
 
-            state.tables.forEach((table) => {
-                const count = (table.guests || []).length;
-                lines.push(`*${table.name}* (${count} ${count === 1 ? 'persona' : 'personas'})`);
-                if (count === 0) {
-                    lines.push('  - (Sin participantes)');
+            state.tables.forEach((t) => {
+                const guests = t.guests || [];
+                lines.push(`*${t.name}* (${guests.length} ${guests.length === 1 ? 'persona' : 'personas'}):`);
+                if (guests.length === 0) {
+                    lines.push('  - Sin asignar');
                 } else {
-                    table.guests.forEach((guest, idx) => {
-                        const notePart = guest.note ? ` [${guest.note}]` : '';
-                        lines.push(`  ${idx + 1}. ${guest.name}${notePart}`);
+                    guests.forEach((g, idx) => {
+                        lines.push(`  ${idx + 1}. ${g.name}${g.note ? ` (${g.note})` : ''}`);
                     });
                 }
                 lines.push('');
             });
 
             const text = lines.join('\n').trim();
-
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
             try {
-                const tempTextarea = document.createElement('textarea');
-                tempTextarea.value = text;
-                tempTextarea.setAttribute('readonly', '');
-                tempTextarea.style.position = 'fixed';
-                tempTextarea.style.opacity = '0';
-                document.body.appendChild(tempTextarea);
-                tempTextarea.select();
-                tempTextarea.setSelectionRange(0, text.length);
-                const copied = document.execCommand('copy');
-                document.body.removeChild(tempTextarea);
-
-                if (copied) {
-                    showToast('Resumen copiado. ¡Listo para pegar en WhatsApp!');
-                    closeModal('exportModal');
-                } else {
-                    showToast('No se pudo copiar automáticamente.', 'error');
-                }
-            } catch (error) {
-                console.error('Error al copiar texto:', error);
-                showToast('No se pudo copiar al portapapeles.', 'error');
+                document.execCommand('copy');
+                closeModal('exportModal');
+                showToast('Listado copiado para pegar en WhatsApp.');
+            } catch (err) {
+                showToast('No se pudo copiar el texto.', 'error');
+            } finally {
+                document.body.removeChild(textarea);
             }
         }
 
         // =========================================================
-        // EDICIÓN DEL EVENTO
-        // =========================================================
-
-        function openEventNameModal() {
-            document.getElementById('eventNameInput').value = state.eventName;
-            openModal('eventModal');
-            setTimeout(() => {
-                const input = document.getElementById('eventNameInput');
-                input.focus();
-                input.select();
-            }, 60);
-        }
-
-        function handleEventFormSubmit(event) {
-            event.preventDefault();
-            const newName = document.getElementById('eventNameInput').value.trim();
-            if (!newName) return;
-            state.eventName = newName;
-            saveState();
-            render();
-            closeModal('eventModal');
-            showToast('Nombre de la cena actualizado.');
-        }
-
-        // =========================================================
-        // ENLACE DE EVENTOS (DELEGACIÓN LIMPIA Y TÁCTIL)
+        // VINCULACIÓN DE EVENTOS DE INTERFAZ
         // =========================================================
 
         function bindEvents() {
-            // Pantalla de acceso con contraseña
+            // Pantalla de contraseña
             document.getElementById('authForm').addEventListener('submit', handleAuthSubmit);
-            document.getElementById('btnTogglePasswordVisibility').addEventListener('click', toggleAuthPasswordVisibility);
-            document.getElementById('authPasswordInput').addEventListener('input', () => {
-                document.getElementById('authErrorMsg').classList.add('hidden');
-                document.getElementById('authPasswordInput').classList.remove('border-rose-500', 'dark:border-rose-500');
-            });
+            document.getElementById('btnTogglePasswordVisibility').addEventListener('click', togglePasswordVisibility);
 
-            // Botón cambiar tema claro/oscuro
+            // Tema claro / oscuro
             document.getElementById('btnToggleTheme').addEventListener('click', toggleTheme);
 
+            // Editar nombre del evento
+            document.getElementById('btnEditEventName').addEventListener('click', () => {
+                document.getElementById('eventNameInput').value = state.eventName;
+                openModal('eventModal');
+                setTimeout(() => document.getElementById('eventNameInput').focus(), 80);
+            });
+
+            document.getElementById('eventForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const newName = document.getElementById('eventNameInput').value.trim();
+                if (!newName) return;
+                state.eventName = newName;
+                closeModal('eventModal');
+                await saveState();
+                showToast('Nombre actualizado.');
+            });
+
             // Botones de cabecera y barra inferior
-            document.getElementById('btnEditEventName').addEventListener('click', openEventNameModal);
             document.getElementById('btnOpenAttendees').addEventListener('click', openAttendeesModal);
             document.getElementById('btnOpenExportHeader').addEventListener('click', () => openModal('exportModal'));
             document.getElementById('btnCreateTable').addEventListener('click', openCreateTableModal);
@@ -1711,118 +1703,154 @@
             // Buscador principal
             const searchInput = document.getElementById('searchInput');
             const btnClearSearch = document.getElementById('btnClearSearch');
-            searchInput.addEventListener('input', (e) => {
-                searchQuery = e.target.value;
+            searchInput.addEventListener('input', () => {
+                searchQuery = searchInput.value;
                 btnClearSearch.classList.toggle('hidden', !searchQuery);
-                renderTables();
+                render();
             });
             btnClearSearch.addEventListener('click', () => {
                 searchQuery = '';
                 searchInput.value = '';
                 btnClearSearch.classList.add('hidden');
-                renderTables();
-                searchInput.focus();
+                render();
             });
 
-            // Delegación de clics en las tarjetas de mesas y participantes
-            document.getElementById('tablesContainer').addEventListener('click', (e) => {
+            // Delegación de clics en las tarjetas de mesas
+            document.getElementById('tablesContainer').addEventListener('click', async (e) => {
                 const btn = e.target.closest('[data-action]');
                 if (!btn) return;
 
-                const { action, tableId, guestId } = btn.dataset;
-                if (action === 'toggle-table') toggleTableCollapse(tableId);
-                else if (action === 'add-guest') openAddGuestModal(tableId);
-                else if (action === 'edit-table') openEditTableModal(tableId);
-                else if (action === 'delete-table') confirmDeleteTable(tableId);
-                else if (action === 'edit-guest') openEditGuestModal(tableId, guestId);
-                else if (action === 'delete-guest') confirmDeleteGuest(tableId, guestId);
-                else if (action === 'move-guest') openMoveGuestModal(tableId, guestId);
+                const action = btn.getAttribute('data-action');
+                const tableId = btn.getAttribute('data-table-id');
+                const guestId = btn.getAttribute('data-guest-id');
+
+                if (action === 'toggle-collapse') {
+                    const targetTable = state.tables.find((t) => t.id === tableId);
+                    if (targetTable) {
+                        targetTable.collapsed = !targetTable.collapsed;
+                        await saveState();
+                    }
+                } else if (action === 'edit-table') {
+                    openEditTableModal(tableId);
+                } else if (action === 'delete-table') {
+                    requestDeleteTable(tableId);
+                } else if (action === 'add-guest') {
+                    openAddGuestModal(tableId);
+                } else if (action === 'edit-guest') {
+                    openEditGuestModal(tableId, guestId);
+                } else if (action === 'delete-guest') {
+                    requestDeleteGuest(tableId, guestId);
+                } else if (action === 'move-guest') {
+                    openMoveGuestModal(tableId, guestId);
+                }
             });
 
-            // Formularios
+            // Formulario Crear/Editar Mesa
             document.getElementById('tableForm').addEventListener('submit', handleTableFormSubmit);
-            document.getElementById('guestForm').addEventListener('submit', handleGuestFormSubmit);
-            document.getElementById('eventForm').addEventListener('submit', handleEventFormSubmit);
-            document.getElementById('addAttendeeForm').addEventListener('submit', handleAddAttendeeSubmit);
 
-            // Autocompletado de nombres en modal de participante
-            const guestNameInput = document.getElementById('guestNameInput');
-            guestNameInput.addEventListener('input', (e) => {
-                renderGuestSuggestions(e.target.value);
+            // Formulario Añadir/Editar Participante + Autocompletado
+            document.getElementById('guestForm').addEventListener('submit', handleGuestFormSubmit);
+            document.getElementById('guestNameInput').addEventListener('input', updateGuestAutocompleteSuggestions);
+            document.getElementById('btnHideSuggestions').addEventListener('click', () => {
+                document.getElementById('guestSuggestionsContainer').classList.add('hidden');
             });
-            document.getElementById('btnHideSuggestions').addEventListener('click', hideGuestSuggestions);
+
             document.getElementById('guestSuggestionsList').addEventListener('click', (e) => {
-                const btn = e.target.closest('[data-pick-suggestion]');
+                const btn = e.target.closest('[data-select-suggestion]');
                 if (!btn) return;
-                guestNameInput.value = btn.dataset.pickSuggestion;
-                hideGuestSuggestions();
+                const chosenName = btn.getAttribute('data-select-suggestion');
+                document.getElementById('guestNameInput').value = chosenName;
+                document.getElementById('guestSuggestionsContainer').classList.add('hidden');
                 document.getElementById('guestNoteInput').focus();
             });
 
-            // Chips rápidos de notas/alergias
-            document.querySelectorAll('.quick-note-btn').forEach((btn) => {
-                btn.addEventListener('click', () => {
+            // Chips rápidos de notas de menú
+            document.querySelectorAll('.quick-note-btn').forEach((chip) => {
+                chip.addEventListener('click', () => {
                     const noteInput = document.getElementById('guestNoteInput');
-                    const tag = btn.textContent.trim();
-                    const current = noteInput.value.trim();
-                    if (!current) {
-                        noteInput.value = tag;
-                    } else if (!normalizeText(current).includes(normalizeText(tag))) {
-                        noteInput.value = `${current}, ${tag}`;
-                    }
+                    const val = chip.textContent.trim();
+                    noteInput.value = noteInput.value.trim()
+                        ? `${noteInput.value.trim()}, ${val}`
+                        : val;
                 });
             });
 
-            // Modal mover / asignar a mesa
-            document.getElementById('moveTableOptions').addEventListener('click', (e) => {
-                const moveBtn = e.target.closest('[data-confirm-move-to]');
+            // Modal Mover o Asignar Mesa
+            document.getElementById('moveTableOptions').addEventListener('click', async (e) => {
+                // Caso 1: Mover participante existente de una mesa a otra
+                const moveBtn = e.target.closest('[data-move-target-table]');
                 if (moveBtn) {
-                    const targetId = moveBtn.dataset.confirmMoveTo;
-                    const sourceId = moveBtn.dataset.sourceTable;
-                    const guestId = moveBtn.dataset.guestId;
+                    const targetTableId = moveBtn.getAttribute('data-move-target-table');
+                    const sourceTableId = moveBtn.getAttribute('data-source-table');
+                    const guestId = moveBtn.getAttribute('data-guest-id');
 
-                    const sourceTable = state.tables.find((t) => t.id === sourceId);
-                    const targetTable = state.tables.find((t) => t.id === targetId);
-                    if (sourceTable && targetTable) {
-                        const idx = sourceTable.guests.findIndex((g) => g.id === guestId);
-                        if (idx !== -1) {
-                            const [guest] = sourceTable.guests.splice(idx, 1);
-                            targetTable.guests.push(guest);
-                            targetTable.collapsed = false;
-                            saveState();
-                            render();
-                            showToast(`${guest.name} movido a ${targetTable.name}.`);
-                        }
-                    }
+                    const sourceTable = state.tables.find((t) => t.id === sourceTableId);
+                    const targetTable = state.tables.find((t) => t.id === targetTableId);
+                    if (!sourceTable || !targetTable) return;
+
+                    const guestIndex = (sourceTable.guests || []).findIndex((g) => g.id === guestId);
+                    if (guestIndex === -1) return;
+
+                    const [movedGuest] = sourceTable.guests.splice(guestIndex, 1);
+                    if (!Array.isArray(targetTable.guests)) targetTable.guests = [];
+                    targetTable.guests.push(movedGuest);
+                    targetTable.collapsed = false;
+
                     closeModal('moveGuestModal');
+                    await saveState();
+                    showToast(`${movedGuest.name} movido a ${targetTable.name}.`);
                     return;
                 }
 
+                // Caso 2: Asignar apuntado desde la Lista a una mesa
                 const assignBtn = e.target.closest('[data-assign-attendee-table]');
                 if (assignBtn) {
-                    const targetId = assignBtn.dataset.assignAttendeeTable;
-                    const attendeeName = assignBtn.dataset.attendeeName;
-                    const targetTable = state.tables.find((t) => t.id === targetId);
-                    if (targetTable && attendeeName) {
-                        targetTable.guests.push({
-                            id: generateId('inv'),
-                            name: attendeeName,
-                            note: ''
-                        });
-                        targetTable.collapsed = false;
-                        saveState();
-                        render();
-                        showToast(`${attendeeName} asignado a ${targetTable.name}.`);
-                    }
+                    const targetTableId = assignBtn.getAttribute('data-assign-attendee-table');
+                    const attendeeName = assignBtn.getAttribute('data-attendee-name');
+                    const targetTable = state.tables.find((t) => t.id === targetTableId);
+                    if (!targetTable || !attendeeName) return;
+
+                    if (!Array.isArray(targetTable.guests)) targetTable.guests = [];
+                    targetTable.guests.push({
+                        id: generateId('inv'),
+                        name: attendeeName,
+                        note: ''
+                    });
+                    targetTable.collapsed = false;
+
                     closeModal('moveGuestModal');
+                    await saveState();
+                    showToast(`${attendeeName} asignado a ${targetTable.name}.`);
                 }
             });
 
-            // Modal lista de apuntados
+            // Modal Confirmación de borrado
+            document.getElementById('btnCancelConfirm').addEventListener('click', () => {
+                pendingConfirmAction = null;
+                closeModal('confirmModal');
+            });
+            document.getElementById('btnAcceptConfirm').addEventListener('click', async () => {
+                const action = pendingConfirmAction;
+                pendingConfirmAction = null;
+                closeModal('confirmModal');
+                if (typeof action === 'function') {
+                    await action();
+                }
+            });
+
+            // Modal Lista de Apuntados
             document.getElementById('attendeesSearchInput').addEventListener('input', (e) => {
                 attendeeSearchQuery = e.target.value;
                 renderAttendeesModal();
             });
+
+            document.querySelectorAll('.attendee-filter-btn').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    attendeeFilter = btn.getAttribute('data-attendee-filter');
+                    renderAttendeesModal();
+                });
+            });
+
             document.getElementById('btnToggleAddAttendee').addEventListener('click', () => {
                 const form = document.getElementById('addAttendeeForm');
                 form.classList.toggle('hidden');
@@ -1830,48 +1858,43 @@
                     document.getElementById('newAttendeeNameInput').focus();
                 }
             });
-            document.querySelectorAll('.attendee-filter-btn').forEach((btn) => {
-                btn.addEventListener('click', () => {
-                    attendeeFilter = btn.dataset.attendeeFilter;
-                    renderAttendeesModal();
-                });
-            });
-            document.getElementById('attendeesListContainer').addEventListener('click', (e) => {
-                const btn = e.target.closest('[data-quick-assign]');
-                if (!btn) return;
-                openAssignAttendeeToTableModal(btn.dataset.quickAssign);
+
+            document.getElementById('addAttendeeForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const input = document.getElementById('newAttendeeNameInput');
+                const name = input.value.trim();
+                if (!name) return;
+
+                const exists = state.attendees.some((a) => normalizeText(a) === normalizeText(name));
+                if (exists) {
+                    showToast('Esa persona ya está en la lista.', 'info');
+                    return;
+                }
+
+                state.attendees.push(name);
+                input.value = '';
+                document.getElementById('addAttendeeForm').classList.add('hidden');
+                await saveState();
+                renderAttendeesModal();
+                showToast(`${name} añadido a la lista de apuntados.`);
             });
 
-            // Botones de exportación
+            document.getElementById('attendeesListContainer').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-quick-assign-attendee]');
+                if (!btn) return;
+                const attendeeName = btn.getAttribute('data-quick-assign-attendee');
+                openAssignAttendeeToTableModal(attendeeName);
+            });
+
+            // Botones de Exportar
             document.getElementById('btnDownloadPDF').addEventListener('click', exportToPDF);
             document.getElementById('btnDownloadExcel').addEventListener('click', exportToExcel);
-            document.getElementById('btnCopySummary').addEventListener('click', copyWhatsAppSummary);
+            document.getElementById('btnCopySummary').addEventListener('click', copySummaryToClipboard);
 
-            // Confirmación personalizada
-            document.getElementById('btnCancelConfirm').addEventListener('click', () => {
-                pendingConfirmAction = null;
-                closeModal('confirmModal');
-            });
-            document.getElementById('btnAcceptConfirm').addEventListener('click', () => {
-                const action = pendingConfirmAction;
-                pendingConfirmAction = null;
-                closeModal('confirmModal');
-                if (typeof action === 'function') action();
-            });
-
-            // Botones genéricos de cierre de modales
+            // Cierre genérico de modales mediante atributo data-close-modal
             document.querySelectorAll('[data-close-modal]').forEach((btn) => {
-                btn.addEventListener('click', () => closeModal(btn.dataset.closeModal));
-            });
-
-            // Cerrar modal tocando el fondo oscuro
-            ['tableModal', 'guestModal', 'moveGuestModal', 'confirmModal', 'exportModal', 'eventModal', 'attendeesModal'].forEach((id) => {
-                const modal = document.getElementById(id);
-                modal.addEventListener('click', (e) => {
-                    if (e.target === modal) {
-                        if (id === 'confirmModal') pendingConfirmAction = null;
-                        closeModal(id);
-                    }
+                btn.addEventListener('click', () => {
+                    closeModal(btn.getAttribute('data-close-modal'));
                 });
             });
         }
@@ -1879,12 +1902,11 @@
         // Arrancar la app al cargar el documento
         document.addEventListener('DOMContentLoaded', () => {
             updateThemeIcons();
-            const unlocked = isAuthenticated();
-            applyAuthUI(unlocked);
-            loadState();
+            applyAuthUI(isUnlocked);
             bindEvents();
             render();
-            if (!unlocked) {
+            initFirebaseSync();
+            if (!isUnlocked) {
                 setTimeout(() => document.getElementById('authPasswordInput').focus(), 100);
             }
         });
